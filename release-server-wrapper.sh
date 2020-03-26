@@ -10,4 +10,4 @@ docker build -f server-wrapper.Dockerfile -t minecloud/server-wrapper .
 
 docker tag minecloud/server-wrapper:latest $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/minecloud/server-wrapper:latest
 
-docker push $ACCOUNT.dkr.ecr.eu-west-2.amazonaws.com/minecloud/server-wrapper:latest
+docker push $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/minecloud/server-wrapper:latest

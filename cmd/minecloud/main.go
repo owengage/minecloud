@@ -1,27 +1,90 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/owengage/minecraft-aws/pkg/minecloud"
 )
 
-func lsCmd(session *session.Session, args []string) error {
+type CLI struct {
+	services *minecloud.AWS
+}
+
+// Exec based on command line args
+func (cli *CLI) Exec(args []string) error {
+	subcommand := args[1]
+	remainder := args[2:]
+	var err error
+
+	switch subcommand {
+	case "ls":
+		err = cli.ls(remainder)
+	case "up":
+		err = cli.up(remainder)
+	case "run-instance":
+		err = cli.runInstance(remainder)
+	case "setup-instance":
+		err = cli.setupInstance(remainder)
+	case "aws-account":
+		account, err := cli.services.Account()
+		if err == nil {
+			fmt.Println(account)
+		}
+	}
+
+	return err
+}
+
+func (cli *CLI) up(args []string) error {
+	cmd := flag.NewFlagSet("up", flag.ExitOnError)
+	cmd.Parse(args)
+	if cmd.NArg() != 1 {
+		return fmt.Errorf("require server name")
+	}
+
+	name := cmd.Arg(0)
+
+	server, err := minecloud.FindRunning(cli.services.EC2, name)
+	if err == minecloud.ErrServerNotFound {
+		// fine
+	} else if err != nil {
+		return fmt.Errorf("up: %w", err)
+	} else {
+		if server.State != "terminated" {
+			return fmt.Errorf("up: server already running: %s", server.Name)
+		}
+	}
+
+	err = minecloud.FindStored(cli.services.S3, name)
+	if err == minecloud.ErrServerNotFound {
+		return fmt.Errorf("up: no server called %s, use 'create'", name)
+	} else if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	// Server not running, and we have it in storage. Fire it up!
+	err = minecloud.RunStored(cli.services.EC2, cli.services.S3, name)
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) ls(args []string) error {
 	cmd := flag.NewFlagSet("ls", flag.ExitOnError)
 	cmd.Parse(args)
 	if len(cmd.Args()) != 0 {
 		return fmt.Errorf("too many arguments to ls")
 	}
 
-	svc := ec2.New(session)
-	servers, err := minecloud.GetRunning(svc)
-
+	servers, err := minecloud.GetRunning(cli.services.EC2)
 	if err != nil {
 		return err
 	}
@@ -34,8 +97,8 @@ func lsCmd(session *session.Session, args []string) error {
 	return nil
 }
 
-func upCmd(session *session.Session, args []string) error {
-	cmd := flag.NewFlagSet("up", flag.ExitOnError)
+func (cli *CLI) runInstance(args []string) error {
+	cmd := flag.NewFlagSet("run-instance", flag.ExitOnError)
 	cmd.Parse(args)
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("require server name")
@@ -43,34 +106,30 @@ func upCmd(session *session.Session, args []string) error {
 
 	name := cmd.Arg(0)
 
-	// Want to check that the server isn't already running
-	ec2Service := ec2.New(session)
-
-	server, err := minecloud.FindRunning(ec2Service, name)
-	if err == minecloud.ErrServerNotFound {
-		// fine
-	} else if err != nil {
-		return fmt.Errorf("up: %w", err)
-	} else {
-		return fmt.Errorf("up: server already running: %s", server.Name)
-	}
-
-	// Server not running, but do we actually have a server with this name?
-	s3Service := s3.New(session)
-
-	err = minecloud.FindStored(s3Service, name)
-	if err == minecloud.ErrServerNotFound {
-		return fmt.Errorf("up: no server called %s, use 'create'", name)
-	} else if err != nil {
+	err := minecloud.RunStored(cli.services.EC2, cli.services.S3, name)
+	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
 
-	log.Printf("found server storage for %s", name)
-	// Server not running, and we have it in storage. Fire it up!
-	// _, err = minecloud.RunStored(ec2Service, s3Service, name)
-	// if err != nil {
-	// 	return fmt.Errorf("up: %w", err)
-	// }
+	return nil
+}
+
+func (cli *CLI) setupInstance(args []string) error {
+	cmd := flag.NewFlagSet("setup-instance", flag.ExitOnError)
+	cmd.Parse(args)
+	if cmd.NArg() != 1 {
+		return fmt.Errorf("require instance ID")
+	}
+
+	id := cmd.Arg(0)
+	if !strings.HasPrefix(id, "i-") {
+		return errors.New("Instance IDs start with 'i-'")
+	}
+
+	err := minecloud.SetupInstance(cli.services, id)
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
 
 	return nil
 }
@@ -84,16 +143,11 @@ func main() {
 		SharedConfigState: session.SharedConfigEnable,
 	}))
 
-	var err error
-	args := os.Args[2:]
-
-	switch os.Args[1] {
-	case "ls":
-		err = lsCmd(sess, args)
-	case "up":
-		err = upCmd(sess, args)
+	cli := CLI{
+		services: minecloud.NewAWS(sess),
 	}
 
+	err := cli.Exec(os.Args)
 	if err != nil {
 		log.Fatal(err)
 	}
