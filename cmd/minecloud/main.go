@@ -4,17 +4,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/owengage/minecraft-aws/pkg/minecloud"
+	"github.com/sirupsen/logrus"
 )
 
 // CLI for minecloud
 type CLI struct {
 	services *minecloud.AWS
+	logger   *logrus.Logger
 }
 
 // Exec based on command line args
@@ -28,19 +29,26 @@ func (cli *CLI) Exec(args []string) error {
 		err = cli.ls(remainder)
 	case "up":
 		err = cli.up(remainder)
-	// case "run-instance":
-	// 	err = cli.runInstance(remainder)
-	case "setup-instance":
-		err = cli.setupInstance(remainder)
+	case "remote-setup":
+		err = cli.remoteSetup(remainder)
+	case "remote-reserve":
+		err = cli.remoteReserve(remainder)
+	case "remote-bootstrap":
+		err = cli.remoteBootstrap(remainder)
 	case "remote-download-world":
 		err = cli.remoteDownloadWorld(remainder)
 	case "remote-start-server":
 		err = cli.remoteStartServer(remainder)
+	// case "remote-status":
+	// case "remote-stop-server":
+
 	case "aws-account":
 		account, err := cli.services.Account()
 		if err == nil {
-			fmt.Println(account)
+			cli.logger.Infoln(account)
 		}
+	default:
+		err = errors.New("unknown subcommand")
 	}
 
 	return err
@@ -94,32 +102,35 @@ func (cli *CLI) ls(args []string) error {
 		return err
 	}
 
-	fmt.Printf("%s\t%s\n", "NAME", "STATE")
+	cli.logger.Infof("%s\t%s\n", "NAME", "STATE")
 	for _, server := range servers {
-		fmt.Printf("%s\t%s\n", server.Name, server.State)
+		cli.logger.Infof("%s\t%s\n", server.Name, server.State)
 	}
 
 	return nil
 }
 
-// func (cli *CLI) runInstance(args []string) error {
-// 	cmd := flag.NewFlagSet("run-instance", flag.ExitOnError)
-// 	cmd.Parse(args)
-// 	if cmd.NArg() != 1 {
-// 		return fmt.Errorf("require server name")
-// 	}
+func (cli *CLI) remoteBootstrap(args []string) error {
+	cmd := flag.NewFlagSet("setup-instance", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	cmd.Parse(args)
 
-// 	name := cmd.Arg(0)
+	if *id == "" {
+		return fmt.Errorf("require -instance-id")
+	}
+	if !strings.HasPrefix(*id, "i-") {
+		return errors.New("Instance IDs start with 'i-'")
+	}
 
-// 	err := minecloud.RunStored(cli.services, name)
-// 	if err != nil {
-// 		return fmt.Errorf("up: %w", err)
-// 	}
+	err := minecloud.BootstrapInstance(cli.services, *id)
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
 
-// 	return nil
-// }
+	return nil
+}
 
-func (cli *CLI) setupInstance(args []string) error {
+func (cli *CLI) remoteSetup(args []string) error {
 	cmd := flag.NewFlagSet("setup-instance", flag.ExitOnError)
 	id := cmd.String("instance-id", "", "instance to download world on to")
 	name := cmd.String("world", "", "world name to download")
@@ -140,6 +151,25 @@ func (cli *CLI) setupInstance(args []string) error {
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
+
+	return nil
+}
+
+func (cli *CLI) remoteReserve(args []string) error {
+	cmd := flag.NewFlagSet("remote-reserve", flag.ExitOnError)
+	name := cmd.String("world", "", "world name to download")
+	cmd.Parse(args)
+
+	if *name == "" {
+		return fmt.Errorf("require -world")
+	}
+
+	id, err := minecloud.ReserveInstance(cli.services, *name)
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	cli.logger.Infof("instance-id: %s", id)
 
 	return nil
 }
@@ -190,8 +220,10 @@ func (cli *CLI) remoteStartServer(args []string) error {
 }
 
 func main() {
+	logger := logrus.New()
+
 	if len(os.Args) < 2 {
-		log.Fatal("expected subcommand e.g. ls")
+		logger.Fatal("expected subcommand e.g. ls")
 	}
 
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
@@ -200,10 +232,12 @@ func main() {
 
 	cli := CLI{
 		services: minecloud.NewAWS(sess),
+		logger:   logger,
 	}
+	cli.services.Logger = logger
 
 	err := cli.Exec(os.Args)
 	if err != nil {
-		log.Fatal(err)
+		cli.logger.Fatal(err)
 	}
 }

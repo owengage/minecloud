@@ -3,7 +3,6 @@ package minecloud
 import (
 	"errors"
 	"fmt"
-	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -72,9 +71,8 @@ func FindStored(s3Service *s3.S3, name string) error {
 	return ErrServerNotFound
 }
 
-// RunStored runs a Minecraft server on EC2 from a world stored on S3.
-func RunStored(services *AWS, name string) error {
-
+// ReserveInstance (run) an EC2 instance
+func ReserveInstance(services *AWS, name string) (string, error) {
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
 		MaxCount:     aws.Int64(1),
 		MinCount:     aws.Int64(1),
@@ -101,14 +99,20 @@ func RunStored(services *AWS, name string) error {
 	})
 
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if len(reservation.Instances) != 1 {
-		return fmt.Errorf("runstored: reservation returned non-1 (%d) instances", len(reservation.Instances))
+		return "", fmt.Errorf("runstored: reservation returned non-1 (%d) instances", len(reservation.Instances))
 	}
 
-	instanceID := *reservation.Instances[0].InstanceId
+	return *reservation.Instances[0].InstanceId, nil
+}
+
+// RunStored runs a Minecraft server on EC2 from a world stored on S3.
+func RunStored(services *AWS, name string) error {
+
+	instanceID, err := ReserveInstance(services, name)
 
 	err = SetupInstance(services, instanceID, name)
 	if err != nil {
@@ -121,89 +125,41 @@ func RunStored(services *AWS, name string) error {
 // BootstrapInstance takes an existing EC2 instance and installs all prerequisites
 // for running a minecraft server.
 func BootstrapInstance(services *AWS, instanceID string) error {
-	client, err := SSHClient(services, instanceID)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
 
-	sshSess, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer sshSess.Close()
-
-	out, err := sshSess.CombinedOutput(`
+	err := services.RunOn(instanceID, `
 		sudo yum update -y;
 		sudo yum install -y docker;
 		sudo service docker start;
 		sudo usermod -a -G docker ec2-user;
 	`)
 
-	if err != nil {
-		log.Println(string(out))
-		return err
-	}
-	log.Println(string(out))
-
-	return nil
+	return err
 }
 
 // DownloadWorld on remote instance.
 func DownloadWorld(services *AWS, instanceID, name string) error {
-	client, err := SSHClient(services, instanceID)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	cmd, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer cmd.Close()
-
 	s3ObjectPath := "s3://" + s3BucketName + "/" + storageKeyForName(name)
 
-	out, err := cmd.CombinedOutput(fmt.Sprintf(`
+	err := services.RunOn(instanceID, fmt.Sprintf(`
 		aws s3 cp %s server.tar.gz
 		tar xvf server.tar.gz
 		rm server.tar.gz
 		sudo mv server /server
 	`, s3ObjectPath))
 
-	if err != nil {
-		log.Println(string(out))
-		return err
-	}
-	log.Println(string(out))
-
-	return nil
+	return err
 }
 
 // StartServerWrapper starts the server wrapper on the EC2 instance that the
 // ssh client is connected to. Expects it isn't already running.
 func StartServerWrapper(services *AWS, instanceID string) error {
-	client, err := SSHClient(services, instanceID)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	sshSess, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer sshSess.Close()
-
 	region := services.Region()
 	account, err := services.Account()
 	if err != nil {
 		return err
 	}
 
-	// TODO template this.
-	out, err := sshSess.CombinedOutput(fmt.Sprintf(`
+	err = services.RunOn(instanceID, fmt.Sprintf(`
 		# Log in to docker
 		# sed hack to remove an invalid argument, god knows why it's there.
 		$(aws ecr get-login --region %s | sed 's/-e none//g')
@@ -218,12 +174,7 @@ func StartServerWrapper(services *AWS, instanceID string) error {
 			-address 0.0.0.0:8080
 	`, region, account, region, account, region))
 
-	if err != nil {
-		log.Println(string(out))
-		return err
-	}
-	log.Println(string(out))
-	return nil
+	return err
 }
 
 // SetupInstance sets up an existing EC2 instance into a Minecraft server.
