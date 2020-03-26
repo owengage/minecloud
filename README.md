@@ -5,6 +5,12 @@ peices that makes it difficult for anyone but myself to use.
 
 # Log
 
+## 2020-03-26
+
+I need to make the set-up do a lot more. It needs to trigger a download of the
+world, as well as all the other pieces that are involved such as the server 
+properties.
+
 ## 2020-03-25
 
 Sorted out some of the IAM stuff for AWS. I can now make an EC2 instance that

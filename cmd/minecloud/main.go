@@ -12,6 +12,7 @@ import (
 	"github.com/owengage/minecraft-aws/pkg/minecloud"
 )
 
+// CLI for minecloud
 type CLI struct {
 	services *minecloud.AWS
 }
@@ -27,10 +28,14 @@ func (cli *CLI) Exec(args []string) error {
 		err = cli.ls(remainder)
 	case "up":
 		err = cli.up(remainder)
-	case "run-instance":
-		err = cli.runInstance(remainder)
+	// case "run-instance":
+	// 	err = cli.runInstance(remainder)
 	case "setup-instance":
 		err = cli.setupInstance(remainder)
+	case "remote-download-world":
+		err = cli.remoteDownloadWorld(remainder)
+	case "remote-start-server":
+		err = cli.remoteStartServer(remainder)
 	case "aws-account":
 		account, err := cli.services.Account()
 		if err == nil {
@@ -69,7 +74,7 @@ func (cli *CLI) up(args []string) error {
 	}
 
 	// Server not running, and we have it in storage. Fire it up!
-	err = minecloud.RunStored(cli.services.EC2, cli.services.S3, name)
+	err = minecloud.RunStored(cli.services, name)
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
@@ -97,16 +102,41 @@ func (cli *CLI) ls(args []string) error {
 	return nil
 }
 
-func (cli *CLI) runInstance(args []string) error {
-	cmd := flag.NewFlagSet("run-instance", flag.ExitOnError)
+// func (cli *CLI) runInstance(args []string) error {
+// 	cmd := flag.NewFlagSet("run-instance", flag.ExitOnError)
+// 	cmd.Parse(args)
+// 	if cmd.NArg() != 1 {
+// 		return fmt.Errorf("require server name")
+// 	}
+
+// 	name := cmd.Arg(0)
+
+// 	err := minecloud.RunStored(cli.services, name)
+// 	if err != nil {
+// 		return fmt.Errorf("up: %w", err)
+// 	}
+
+// 	return nil
+// }
+
+func (cli *CLI) setupInstance(args []string) error {
+	cmd := flag.NewFlagSet("setup-instance", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	name := cmd.String("world", "", "world name to download")
 	cmd.Parse(args)
-	if cmd.NArg() != 1 {
-		return fmt.Errorf("require server name")
+
+	if *id == "" {
+		return fmt.Errorf("require -instance-id")
+	}
+	if *name == "" {
+		return fmt.Errorf("require -world")
 	}
 
-	name := cmd.Arg(0)
+	if !strings.HasPrefix(*id, "i-") {
+		return errors.New("Instance IDs start with 'i-'")
+	}
 
-	err := minecloud.RunStored(cli.services.EC2, cli.services.S3, name)
+	err := minecloud.SetupInstance(cli.services, *id, *name)
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
@@ -114,19 +144,44 @@ func (cli *CLI) runInstance(args []string) error {
 	return nil
 }
 
-func (cli *CLI) setupInstance(args []string) error {
-	cmd := flag.NewFlagSet("setup-instance", flag.ExitOnError)
+func (cli *CLI) remoteDownloadWorld(args []string) error {
+	cmd := flag.NewFlagSet("remote-world-download", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	name := cmd.String("world", "", "world name to download")
 	cmd.Parse(args)
-	if cmd.NArg() != 1 {
-		return fmt.Errorf("require instance ID")
+
+	if *id == "" {
+		return fmt.Errorf("require -instance-id")
+	}
+	if *name == "" {
+		return fmt.Errorf("require -world")
 	}
 
-	id := cmd.Arg(0)
-	if !strings.HasPrefix(id, "i-") {
+	if !strings.HasPrefix(*id, "i-") {
 		return errors.New("Instance IDs start with 'i-'")
 	}
 
-	err := minecloud.SetupInstance(cli.services, id)
+	err := minecloud.DownloadWorld(cli.services, *id, *name)
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) remoteStartServer(args []string) error {
+	cmd := flag.NewFlagSet("remote-start-server", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	cmd.Parse(args)
+
+	if *id == "" {
+		return fmt.Errorf("require -instance-id")
+	}
+	if !strings.HasPrefix(*id, "i-") {
+		return errors.New("Instance IDs start with 'i-'")
+	}
+
+	err := minecloud.StartServerWrapper(cli.services, *id)
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
