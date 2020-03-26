@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/owengage/minecraft-aws/pkg/serverwrapper"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/owengage/minecraft-aws/pkg/minecloud"
@@ -14,7 +17,7 @@ import (
 
 // CLI for minecloud
 type CLI struct {
-	services *minecloud.AWS
+	services *minecloud.Minecloud
 	logger   *logrus.Logger
 }
 
@@ -39,9 +42,12 @@ func (cli *CLI) Exec(args []string) error {
 		err = cli.remoteDownloadWorld(remainder)
 	case "remote-start-server":
 		err = cli.remoteStartServer(remainder)
-	// case "remote-status":
-	// case "remote-stop-server":
-
+	case "remote-status":
+		err = cli.remoteStatus(remainder)
+	case "remote-stop-server":
+		err = cli.remoteStopServer(remainder)
+	case "remote-logs":
+		err = cli.remoteLogs(remainder)
 	case "aws-account":
 		account, err := cli.services.Account()
 		if err == nil {
@@ -56,14 +62,14 @@ func (cli *CLI) Exec(args []string) error {
 
 func (cli *CLI) up(args []string) error {
 	cmd := flag.NewFlagSet("up", flag.ExitOnError)
+	name := cmd.String("world", "", "world name to download")
 	cmd.Parse(args)
-	if cmd.NArg() != 1 {
-		return fmt.Errorf("require server name")
+
+	if *name == "" {
+		return errors.New("-world required")
 	}
 
-	name := cmd.Arg(0)
-
-	server, err := minecloud.FindRunning(cli.services.EC2, name)
+	server, err := minecloud.FindRunning(cli.services.EC2, *name)
 	if err == minecloud.ErrServerNotFound {
 		// fine
 	} else if err != nil {
@@ -74,15 +80,15 @@ func (cli *CLI) up(args []string) error {
 		}
 	}
 
-	err = minecloud.FindStored(cli.services.S3, name)
+	err = minecloud.FindStored(cli.services.S3, *name)
 	if err == minecloud.ErrServerNotFound {
-		return fmt.Errorf("up: no server called %s, use 'create'", name)
+		return fmt.Errorf("up: no server called %s, use 'create'", *name)
 	} else if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
 
 	// Server not running, and we have it in storage. Fire it up!
-	err = minecloud.RunStored(cli.services, name)
+	err = minecloud.RunStored(cli.services, *name)
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
@@ -102,9 +108,11 @@ func (cli *CLI) ls(args []string) error {
 		return err
 	}
 
-	cli.logger.Infof("%s\t%s\n", "NAME", "STATE")
 	for _, server := range servers {
-		cli.logger.Infof("%s\t%s\n", server.Name, server.State)
+		cli.logger.WithFields(logrus.Fields{
+			"name":  server.Name,
+			"state": server.State,
+		}).Info("Found")
 	}
 
 	return nil
@@ -115,11 +123,8 @@ func (cli *CLI) remoteBootstrap(args []string) error {
 	id := cmd.String("instance-id", "", "instance to download world on to")
 	cmd.Parse(args)
 
-	if *id == "" {
-		return fmt.Errorf("require -instance-id")
-	}
-	if !strings.HasPrefix(*id, "i-") {
-		return errors.New("Instance IDs start with 'i-'")
+	if err := validateInstanceID(*id); err != nil {
+		return err
 	}
 
 	err := minecloud.BootstrapInstance(cli.services, *id)
@@ -136,15 +141,11 @@ func (cli *CLI) remoteSetup(args []string) error {
 	name := cmd.String("world", "", "world name to download")
 	cmd.Parse(args)
 
-	if *id == "" {
-		return fmt.Errorf("require -instance-id")
+	if err := validateInstanceID(*id); err != nil {
+		return err
 	}
 	if *name == "" {
 		return fmt.Errorf("require -world")
-	}
-
-	if !strings.HasPrefix(*id, "i-") {
-		return errors.New("Instance IDs start with 'i-'")
 	}
 
 	err := minecloud.SetupInstance(cli.services, *id, *name)
@@ -180,15 +181,11 @@ func (cli *CLI) remoteDownloadWorld(args []string) error {
 	name := cmd.String("world", "", "world name to download")
 	cmd.Parse(args)
 
-	if *id == "" {
-		return fmt.Errorf("require -instance-id")
+	if err := validateInstanceID(*id); err != nil {
+		return err
 	}
 	if *name == "" {
 		return fmt.Errorf("require -world")
-	}
-
-	if !strings.HasPrefix(*id, "i-") {
-		return errors.New("Instance IDs start with 'i-'")
 	}
 
 	err := minecloud.DownloadWorld(cli.services, *id, *name)
@@ -204,14 +201,76 @@ func (cli *CLI) remoteStartServer(args []string) error {
 	id := cmd.String("instance-id", "", "instance to download world on to")
 	cmd.Parse(args)
 
-	if *id == "" {
-		return fmt.Errorf("require -instance-id")
-	}
-	if !strings.HasPrefix(*id, "i-") {
-		return errors.New("Instance IDs start with 'i-'")
+	if err := validateInstanceID(*id); err != nil {
+		return err
 	}
 
 	err := minecloud.StartServerWrapper(cli.services, *id)
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) remoteStatus(args []string) error {
+	cmd := flag.NewFlagSet("remote-status", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	cmd.Parse(args)
+
+	if err := validateInstanceID(*id); err != nil {
+		return err
+	}
+
+	out, _, err := cli.services.OutputOn(*id, "curl localhost:8080/status")
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	var statusResponse serverwrapper.StatusResponse
+	json.Unmarshal(out, &statusResponse)
+	cli.logger.Info(statusResponse.Status)
+
+	return nil
+}
+
+func validateInstanceID(id string) error {
+	if id == "" {
+		return fmt.Errorf("require -instance-id")
+	}
+	if !strings.HasPrefix(id, "i-") {
+		return errors.New("Instance IDs start with 'i-'")
+	}
+	return nil
+}
+
+func (cli *CLI) remoteStopServer(args []string) error {
+	cmd := flag.NewFlagSet("remote-stop-server", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	cmd.Parse(args)
+
+	if err := validateInstanceID(*id); err != nil {
+		return err
+	}
+
+	err := cli.services.RunOn(*id, "curl -X POST localhost:8080/stop")
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) remoteLogs(args []string) error {
+	cmd := flag.NewFlagSet("remote-stop-server", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	cmd.Parse(args)
+
+	if err := validateInstanceID(*id); err != nil {
+		return err
+	}
+
+	err := cli.services.RunOn(*id, "docker logs serverwrapper")
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
@@ -231,7 +290,7 @@ func main() {
 	}))
 
 	cli := CLI{
-		services: minecloud.NewAWS(sess),
+		services: minecloud.NewMinecloud(sess),
 		logger:   logger,
 	}
 	cli.services.Logger = logger

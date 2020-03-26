@@ -1,8 +1,10 @@
 package minecloud
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 
@@ -14,10 +16,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// NewAWS makes a new AWS helper object
-func NewAWS(sess *session.Session) *AWS {
+// Minecloud makes a new AWS helper object
+func NewMinecloud(sess *session.Session) *Minecloud {
 
-	return &AWS{
+	return &Minecloud{
 		Session: sess,
 		Logger:  logrus.New(),
 		EC2:     ec2.New(sess),
@@ -25,8 +27,8 @@ func NewAWS(sess *session.Session) *AWS {
 	}
 }
 
-// AWS contains useful bits for working with AWS.
-type AWS struct {
+// Minecloud contains useful bits for working with AWS.
+type Minecloud struct {
 	Session *session.Session
 	EC2     *ec2.EC2
 	S3      *s3.S3
@@ -36,7 +38,20 @@ type AWS struct {
 }
 
 // RunOn runs the given script on the given instance.
-func (a *AWS) RunOn(instanceID, script string) error {
+func (a *Minecloud) RunOn(instanceID, script string) error {
+	return a.runOn(instanceID, script, os.Stdout, os.Stderr)
+}
+
+// OutputOn returns stdout of running the given script
+func (a *Minecloud) OutputOn(instanceID, script string) ([]byte, []byte, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := a.runOn(instanceID, script, &stdout, &stderr)
+	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+// runOn runs the given script on the given instance.
+func (a *Minecloud) runOn(instanceID, script string, stdout, stderr io.Writer) error {
 	// Need to get the public IP.
 	description, err := a.EC2.DescribeInstances(descInput(instanceID))
 	if err != nil {
@@ -44,11 +59,13 @@ func (a *AWS) RunOn(instanceID, script string) error {
 	}
 
 	if len(description.Reservations) != 1 {
-		return errors.New("instance not found")
+		return fmt.Errorf("instance not found (%d reservations)",
+			len(description.Reservations))
 	}
 
 	if len(description.Reservations[0].Instances) != 1 {
-		return errors.New("instance not found")
+		return fmt.Errorf("instance not found (%d instances in reservation)",
+			len(description.Reservations[0].Instances))
 	}
 
 	ipPtr := description.Reservations[0].Instances[0].PublicIpAddress
@@ -90,11 +107,8 @@ func (a *AWS) RunOn(instanceID, script string) error {
 	}
 	defer sshSession.Close()
 
-	// Only good for CLI, which is why it's in the AWS services object
-	// The CLI could have in theory configured this, and something else
-	// could configure it differently.
-	sshSession.Stdout = os.Stdout
-	sshSession.Stderr = os.Stderr
+	sshSession.Stdout = stdout
+	sshSession.Stderr = stderr
 
 	err = sshSession.Run(script)
 	if err != nil {
@@ -105,7 +119,7 @@ func (a *AWS) RunOn(instanceID, script string) error {
 }
 
 // Account is the AWS account being used to make requests.
-func (a *AWS) Account() (string, error) {
+func (a *Minecloud) Account() (string, error) {
 	if a.account == nil {
 		STS := sts.New(a.Session)
 		identity, err := STS.GetCallerIdentity(nil)
@@ -120,6 +134,6 @@ func (a *AWS) Account() (string, error) {
 }
 
 // Region returns the region we are running commands in.
-func (a *AWS) Region() string {
+func (a *Minecloud) Region() string {
 	return *a.Session.Config.Region
 }

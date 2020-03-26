@@ -11,11 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-)
 
-type StatusResponse struct {
-	Status string
-}
+	"github.com/owengage/minecraft-aws/pkg/serverwrapper"
+)
 
 func main() {
 	address := flag.String("address", "", "IP address to bind to")
@@ -56,7 +54,7 @@ func main() {
 
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 
-		response := StatusResponse{}
+		response := serverwrapper.StatusResponse{}
 
 		response.Status = string(server.Status())
 
@@ -103,12 +101,6 @@ func NewServer(jar, dir string) *Server {
 	}
 }
 
-type Status string
-
-const StatusStarting = "starting"
-const StatusRunning = "running"
-const StatusStopped = "stopped"
-
 // Output from server console.
 func (server *Server) Output() <-chan string {
 	return server.output
@@ -121,18 +113,18 @@ func (server *Server) RequestStop() error {
 }
 
 // Status of the server
-func (server *Server) Status() Status {
+func (server *Server) Status() serverwrapper.Status {
 	select {
 	case <-server.done:
-		return StatusStopped
+		return serverwrapper.StatusStopped
 	default:
 	}
 
 	if server.finishedStarting {
-		return StatusRunning
+		return serverwrapper.StatusRunning
 	}
 
-	return StatusStarting
+	return serverwrapper.StatusStarting
 }
 
 // Run the server. Blocks until server is closed. Use `go server.Run()`.
@@ -206,5 +198,6 @@ func (server *Server) Run() (err error) {
 	}
 
 	close(server.done)
+	fmt.Printf("Minecraft Server terminated")
 	return nil
 }

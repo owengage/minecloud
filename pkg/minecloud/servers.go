@@ -72,7 +72,7 @@ func FindStored(s3Service *s3.S3, name string) error {
 }
 
 // ReserveInstance (run) an EC2 instance
-func ReserveInstance(services *AWS, name string) (string, error) {
+func ReserveInstance(services *Minecloud, name string) (string, error) {
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
 		MaxCount:     aws.Int64(1),
 		MinCount:     aws.Int64(1),
@@ -110,7 +110,7 @@ func ReserveInstance(services *AWS, name string) (string, error) {
 }
 
 // RunStored runs a Minecraft server on EC2 from a world stored on S3.
-func RunStored(services *AWS, name string) error {
+func RunStored(services *Minecloud, name string) error {
 
 	instanceID, err := ReserveInstance(services, name)
 
@@ -124,7 +124,7 @@ func RunStored(services *AWS, name string) error {
 
 // BootstrapInstance takes an existing EC2 instance and installs all prerequisites
 // for running a minecraft server.
-func BootstrapInstance(services *AWS, instanceID string) error {
+func BootstrapInstance(services *Minecloud, instanceID string) error {
 
 	err := services.RunOn(instanceID, `
 		sudo yum update -y;
@@ -137,7 +137,7 @@ func BootstrapInstance(services *AWS, instanceID string) error {
 }
 
 // DownloadWorld on remote instance.
-func DownloadWorld(services *AWS, instanceID, name string) error {
+func DownloadWorld(services *Minecloud, instanceID, name string) error {
 	s3ObjectPath := "s3://" + s3BucketName + "/" + storageKeyForName(name)
 
 	err := services.RunOn(instanceID, fmt.Sprintf(`
@@ -152,7 +152,7 @@ func DownloadWorld(services *AWS, instanceID, name string) error {
 
 // StartServerWrapper starts the server wrapper on the EC2 instance that the
 // ssh client is connected to. Expects it isn't already running.
-func StartServerWrapper(services *AWS, instanceID string) error {
+func StartServerWrapper(services *Minecloud, instanceID string) error {
 	region := services.Region()
 	account, err := services.Account()
 	if err != nil {
@@ -167,8 +167,10 @@ func StartServerWrapper(services *AWS, instanceID string) error {
 		docker pull %s.dkr.ecr.%s.amazonaws.com/minecloud/server-wrapper:latest
 
 		docker run -d \
+			--rm \
 			-p 8080:8080 \
 			-p 25565:25565 \
+			--name serverwrapper \
 			--volume /server:/server \
 			%s.dkr.ecr.%s.amazonaws.com/minecloud/server-wrapper:latest \
 			-address 0.0.0.0:8080
@@ -178,7 +180,7 @@ func StartServerWrapper(services *AWS, instanceID string) error {
 }
 
 // SetupInstance sets up an existing EC2 instance into a Minecraft server.
-func SetupInstance(services *AWS, instanceID, name string) error {
+func SetupInstance(services *Minecloud, instanceID, name string) error {
 
 	err := services.EC2.WaitUntilInstanceRunning(descInput(instanceID))
 	if err != nil {
