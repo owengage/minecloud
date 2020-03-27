@@ -103,8 +103,6 @@ func (a *Minecloud) runOn(instanceID, script string, opts RunOpts) error {
 
 	ip := *ipPtr
 
-	a.Logger.Infof("public IP: %s", ip)
-
 	key, err := ioutil.ReadFile(path.Join(a.configDir, "MinecraftServerKeyPair.pem"))
 	if err != nil {
 		return err

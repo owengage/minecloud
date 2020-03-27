@@ -15,9 +15,10 @@ import (
 
 // MCServer is a Minecraft server.
 type MCServer struct {
-	Name       string
-	State      string
-	InstanceID string
+	Name          string
+	InstanceState string
+	InstanceID    string
+	PublicIP      *string
 }
 
 // GetRunning gets the list of current Minecraft servers, including recently terminated.
@@ -42,9 +43,10 @@ func GetRunning(svc *ec2.EC2) ([]MCServer, error) {
 	for _, reservation := range result.Reservations {
 		for _, instance := range reservation.Instances {
 			servers = append(servers, MCServer{
-				Name:       getMCName(instance),
-				State:      *instance.State.Name,
-				InstanceID: *instance.InstanceId,
+				Name:          getMCName(instance),
+				InstanceState: *instance.State.Name,
+				InstanceID:    *instance.InstanceId,
+				PublicIP:      instance.PublicIpAddress,
 			})
 		}
 	}
@@ -346,7 +348,7 @@ func FindRunning(svc *ec2.EC2, name string) (MCServer, error) {
 	}
 
 	for _, server := range servers {
-		if server.Name == name && IsActiveInstanceState(server.State) {
+		if server.Name == name && IsActiveInstanceState(server.InstanceState) {
 			return server, nil
 		}
 	}
