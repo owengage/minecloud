@@ -1,8 +1,12 @@
 package minecloud
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
+	"github.com/owengage/minecraft-aws/pkg/serverwrapper"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -73,6 +77,8 @@ func FindStored(s3Service *s3.S3, name string) error {
 
 // ReserveInstance (run) an EC2 instance
 func ReserveInstance(services *Minecloud, name string) (string, error) {
+	services.Logger.Info("reserving EC2 instance")
+
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
 		MaxCount:     aws.Int64(1),
 		MinCount:     aws.Int64(1),
@@ -126,26 +132,69 @@ func RunStored(services *Minecloud, name string) error {
 // for running a minecraft server.
 func BootstrapInstance(services *Minecloud, instanceID string) error {
 
+	services.Logger.Info("bootstrapping instance")
+
 	err := services.RunOn(instanceID, `
+		set -x
 		sudo yum update -y;
 		sudo yum install -y docker;
 		sudo service docker start;
 		sudo usermod -a -G docker ec2-user;
-	`)
+	`, RunOpts{AcceptNewKey: true})
 
 	return err
 }
 
 // DownloadWorld on remote instance.
 func DownloadWorld(services *Minecloud, instanceID, name string) error {
+	services.Logger.Info("downloading world")
+
 	s3ObjectPath := "s3://" + s3BucketName + "/" + storageKeyForName(name)
 
 	err := services.RunOn(instanceID, fmt.Sprintf(`
+		set -x
 		aws s3 cp %s server.tar.gz
 		tar xvf server.tar.gz
 		rm server.tar.gz
-		sudo mv server /server
-	`, s3ObjectPath))
+		sudo mv server/ /
+	`, s3ObjectPath), RunOpts{})
+
+	return err
+}
+
+// Status gets the status of an instance's server wrapper.
+func Status(services *Minecloud, instanceID string) (serverwrapper.StatusResponse, error) {
+
+	out, _, err := services.OutputOn(instanceID, "curl localhost:8080/status", RunOpts{})
+	if err != nil {
+		return serverwrapper.StatusResponse{}, fmt.Errorf("up: %w", err)
+	}
+
+	var statusResponse serverwrapper.StatusResponse
+	err = json.Unmarshal(out, &statusResponse)
+	return statusResponse, err
+}
+
+// UploadWorld uploads a world from an EC2 instance to S3.
+func UploadWorld(services *Minecloud, instanceID, name string) error {
+	s3ObjectPath := "s3://" + s3BucketName + "/" + storageKeyForName(name)
+
+	// TODO: Verify the world name somehow before upload to prevent accidental overwrite?
+	resp, err := Status(services, instanceID)
+	if err != nil {
+		return err
+	}
+
+	if resp.Status != serverwrapper.StatusStopped {
+		return fmt.Errorf("server still running for world '%s', must be stopped to upload world", name)
+	}
+
+	err = services.RunOn(instanceID, fmt.Sprintf(`
+		set -x
+		tar czvf server.tar.gz /server
+		aws s3 cp server.tar.gz %s
+		rm server.tar.gz
+	`, s3ObjectPath), RunOpts{})
 
 	return err
 }
@@ -160,6 +209,7 @@ func StartServerWrapper(services *Minecloud, instanceID string) error {
 	}
 
 	err = services.RunOn(instanceID, fmt.Sprintf(`
+		set -x
 		# Log in to docker
 		# sed hack to remove an invalid argument, god knows why it's there.
 		$(aws ecr get-login --region %s | sed 's/-e none//g')
@@ -174,7 +224,31 @@ func StartServerWrapper(services *Minecloud, instanceID string) error {
 			--volume /server:/server \
 			%s.dkr.ecr.%s.amazonaws.com/minecloud/server-wrapper:latest \
 			-address 0.0.0.0:8080
-	`, region, account, region, account, region))
+	`, region, account, region, account, region), RunOpts{})
+
+	return err
+}
+
+// WaitForSSH waits for an instance to have SSH available.
+func WaitForSSH(services *Minecloud, instanceID string, acceptNewKey bool) error {
+	services.Logger.Info("waiting for instance to be running")
+
+	err := services.EC2.WaitUntilInstanceRunning(descInput(instanceID))
+	if err != nil {
+		return err
+	}
+
+	retryAttempts := 3
+
+	for i := 0; i < retryAttempts; i++ {
+		services.Logger.Info("Attempting SSH connection...")
+		_, _, err = services.OutputOn(instanceID, "ls", RunOpts{AcceptNewKey: acceptNewKey})
+		if err == nil {
+			services.Logger.Info("SSH established")
+			return nil
+		}
+		time.Sleep(5 * time.Second)
+	}
 
 	return err
 }
@@ -182,7 +256,7 @@ func StartServerWrapper(services *Minecloud, instanceID string) error {
 // SetupInstance sets up an existing EC2 instance into a Minecraft server.
 func SetupInstance(services *Minecloud, instanceID, name string) error {
 
-	err := services.EC2.WaitUntilInstanceRunning(descInput(instanceID))
+	err := WaitForSSH(services, instanceID, true)
 	if err != nil {
 		return err
 	}

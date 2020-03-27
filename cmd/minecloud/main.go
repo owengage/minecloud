@@ -1,14 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/owengage/minecraft-aws/pkg/serverwrapper"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/owengage/minecraft-aws/pkg/minecloud"
@@ -46,8 +43,12 @@ func (cli *CLI) Exec(args []string) error {
 		err = cli.remoteStatus(remainder)
 	case "remote-stop-server":
 		err = cli.remoteStopServer(remainder)
+	case "remote-rm-server":
+		err = cli.remoteRmServer(remainder)
 	case "remote-logs":
 		err = cli.remoteLogs(remainder)
+	case "remote-upload-world":
+		err = cli.remoteUploadWorld(remainder)
 	case "aws-account":
 		account, err := cli.services.Account()
 		if err == nil {
@@ -176,7 +177,7 @@ func (cli *CLI) remoteReserve(args []string) error {
 }
 
 func (cli *CLI) remoteDownloadWorld(args []string) error {
-	cmd := flag.NewFlagSet("remote-world-download", flag.ExitOnError)
+	cmd := flag.NewFlagSet("remote-download-world", flag.ExitOnError)
 	id := cmd.String("instance-id", "", "instance to download world on to")
 	name := cmd.String("world", "", "world name to download")
 	cmd.Parse(args)
@@ -189,6 +190,27 @@ func (cli *CLI) remoteDownloadWorld(args []string) error {
 	}
 
 	err := minecloud.DownloadWorld(cli.services, *id, *name)
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) remoteUploadWorld(args []string) error {
+	cmd := flag.NewFlagSet("remote-upload-world", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to upload world from")
+	name := cmd.String("world", "", "world name to upload")
+	cmd.Parse(args)
+
+	if err := validateInstanceID(*id); err != nil {
+		return err
+	}
+	if *name == "" {
+		return fmt.Errorf("require -world")
+	}
+
+	err := minecloud.UploadWorld(cli.services, *id, *name)
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
@@ -222,14 +244,12 @@ func (cli *CLI) remoteStatus(args []string) error {
 		return err
 	}
 
-	out, _, err := cli.services.OutputOn(*id, "curl localhost:8080/status")
+	resp, err := minecloud.Status(cli.services, *id)
 	if err != nil {
-		return fmt.Errorf("up: %w", err)
+		return err
 	}
 
-	var statusResponse serverwrapper.StatusResponse
-	json.Unmarshal(out, &statusResponse)
-	cli.logger.Info(statusResponse.Status)
+	cli.logger.Info(resp.Status)
 
 	return nil
 }
@@ -253,7 +273,24 @@ func (cli *CLI) remoteStopServer(args []string) error {
 		return err
 	}
 
-	err := cli.services.RunOn(*id, "curl -X POST localhost:8080/stop")
+	err := cli.services.RunOn(*id, "curl -X POST localhost:8080/stop", minecloud.RunOpts{})
+	if err != nil {
+		return fmt.Errorf("up: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) remoteRmServer(args []string) error {
+	cmd := flag.NewFlagSet("remote-rm-server", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to download world on to")
+	cmd.Parse(args)
+
+	if err := validateInstanceID(*id); err != nil {
+		return err
+	}
+
+	err := cli.services.RunOn(*id, "docker rm -f serverwrapper", minecloud.RunOpts{})
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
@@ -270,7 +307,7 @@ func (cli *CLI) remoteLogs(args []string) error {
 		return err
 	}
 
-	err := cli.services.RunOn(*id, "docker logs serverwrapper")
+	err := cli.services.RunOn(*id, "docker logs serverwrapper", minecloud.RunOpts{})
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
 	}
