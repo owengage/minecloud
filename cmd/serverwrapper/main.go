@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/owengage/minecraft-aws/pkg/serverwrapper"
+	"github.com/owengage/minecloud/pkg/serverwrapper"
 )
 
 func main() {

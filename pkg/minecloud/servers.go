@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/owengage/minecraft-aws/pkg/serverwrapper"
+	"github.com/owengage/minecloud/pkg/serverwrapper"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
