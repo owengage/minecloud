@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/owengage/minecraft-aws/pkg/minecloud"
+	"github.com/owengage/minecloud/pkg/minecloud"
 	"github.com/sirupsen/logrus"
 )
 
