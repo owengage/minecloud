@@ -15,8 +15,9 @@ import (
 
 // MCServer is a Minecraft server.
 type MCServer struct {
-	Name  string
-	State string
+	Name       string
+	State      string
+	InstanceID string
 }
 
 // GetRunning gets the list of current Minecraft servers, including recently terminated.
@@ -41,8 +42,9 @@ func GetRunning(svc *ec2.EC2) ([]MCServer, error) {
 	for _, reservation := range result.Reservations {
 		for _, instance := range reservation.Instances {
 			servers = append(servers, MCServer{
-				Name:  getMCName(instance),
-				State: *instance.State.Name,
+				Name:       getMCName(instance),
+				State:      *instance.State.Name,
+				InstanceID: *instance.InstanceId,
 			})
 		}
 	}
@@ -113,6 +115,19 @@ func ReserveInstance(services *Minecloud, name string) (string, error) {
 	}
 
 	return *reservation.Instances[0].InstanceId, nil
+}
+
+// TerminateInstance terminates an EC2 instance.
+func TerminateInstance(services *Minecloud, instanceID string) error {
+	services.Logger.Info("terminating EC2 instance")
+
+	_, err := services.EC2.TerminateInstances(&ec2.TerminateInstancesInput{
+		InstanceIds: []*string{
+			aws.String(instanceID),
+		},
+	})
+
+	return err
 }
 
 // RunStored runs a Minecraft server on EC2 from a world stored on S3.
@@ -229,6 +244,40 @@ func StartServerWrapper(services *Minecloud, instanceID string) error {
 	return err
 }
 
+// StopServerWrapper stops the server wrapper
+func StopServerWrapper(services *Minecloud, instanceID string) error {
+	err := services.RunOn(instanceID, "curl -X POST localhost:8080/stop", RunOpts{})
+	if err != nil {
+		return err
+	}
+
+	return WaitForStopped(services, instanceID)
+}
+
+// WaitForStopped server wrapper.
+func WaitForStopped(services *Minecloud, instanceID string) error {
+	retryAttempts := 3
+	var err error
+
+	for i := 0; i < retryAttempts; i++ {
+		var resp serverwrapper.StatusResponse
+		resp, err = Status(services, instanceID)
+		if err != nil {
+			break
+		}
+		if resp.Status == serverwrapper.StatusStopped {
+			return nil
+		}
+		time.Sleep(3 * time.Second)
+	}
+
+	if err == nil {
+		err = errors.New("hit max retries for server wrapper stop wait")
+	}
+
+	return err
+}
+
 // WaitForSSH waits for an instance to have SSH available.
 func WaitForSSH(services *Minecloud, instanceID string, acceptNewKey bool) error {
 	services.Logger.Info("waiting for instance to be running")
@@ -282,6 +331,11 @@ func SetupInstance(services *Minecloud, instanceID, name string) error {
 // ErrServerNotFound given if server isn't found on cloud
 var ErrServerNotFound error = errors.New("server not found")
 
+// IsActiveInstanceState returns true if a state represents a running, not-shutting-down instance.
+func IsActiveInstanceState(state string) bool {
+	return state != "terminated" && state != "shutting-down"
+}
+
 // FindRunning returns the server if it exists. Error will be ErrServerNotFound if
 // not found, and a different error otherwise.
 func FindRunning(svc *ec2.EC2, name string) (MCServer, error) {
@@ -292,7 +346,7 @@ func FindRunning(svc *ec2.EC2, name string) (MCServer, error) {
 	}
 
 	for _, server := range servers {
-		if server.Name == name {
+		if server.Name == name && IsActiveInstanceState(server.State) {
 			return server, nil
 		}
 	}

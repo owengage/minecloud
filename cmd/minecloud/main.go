@@ -29,6 +29,8 @@ func (cli *CLI) Exec(args []string) error {
 		err = cli.ls(remainder)
 	case "up":
 		err = cli.up(remainder)
+	case "down":
+		err = cli.down(remainder)
 	case "remote-setup":
 		err = cli.remoteSetup(remainder)
 	case "remote-reserve":
@@ -49,6 +51,8 @@ func (cli *CLI) Exec(args []string) error {
 		err = cli.remoteLogs(remainder)
 	case "remote-upload-world":
 		err = cli.remoteUploadWorld(remainder)
+	case "terminate":
+		err = cli.terminate(remainder)
 	case "aws-account":
 		account, err := cli.services.Account()
 		if err == nil {
@@ -92,6 +96,61 @@ func (cli *CLI) up(args []string) error {
 	err = minecloud.RunStored(cli.services, *name)
 	if err != nil {
 		return fmt.Errorf("up: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) down(args []string) error {
+	cmd := flag.NewFlagSet("up", flag.ExitOnError)
+	name := cmd.String("world", "", "world name of server to take down")
+	cmd.Parse(args)
+
+	if *name == "" {
+		return errors.New("-world required")
+	}
+
+	server, err := minecloud.FindRunning(cli.services.EC2, *name)
+	if err == minecloud.ErrServerNotFound {
+		return fmt.Errorf("down: could not find running server with world name: %s", *name)
+	} else if err != nil {
+		return fmt.Errorf("down: %w", err)
+	}
+
+	if server.State == "terminated" || server.State == "shutting-down" {
+		return fmt.Errorf("down: server already terminated: %s", server.Name)
+	}
+
+	err = minecloud.StopServerWrapper(cli.services, server.InstanceID)
+	if err != nil {
+		return fmt.Errorf("down: failed to stop server wrapper (%s): %w", server.Name, err)
+	}
+
+	err = minecloud.UploadWorld(cli.services, server.InstanceID, server.Name)
+	if err != nil {
+		return fmt.Errorf("down: failed to upload world (%s): %w", server.Name, err)
+	}
+
+	err = minecloud.TerminateInstance(cli.services, server.InstanceID)
+	if err != nil {
+		return fmt.Errorf("down: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) terminate(args []string) error {
+	cmd := flag.NewFlagSet("terminate", flag.ExitOnError)
+	id := cmd.String("instance-id", "", "instance to terminate")
+	cmd.Parse(args)
+
+	if err := validateInstanceID(*id); err != nil {
+		return err
+	}
+
+	err := minecloud.TerminateInstance(cli.services, *id)
+	if err != nil {
+		return fmt.Errorf("terminate: %w", err)
 	}
 
 	return nil
