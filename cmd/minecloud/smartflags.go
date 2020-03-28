@@ -15,14 +15,22 @@ type SmartFlags struct {
 	instanceRequired bool
 	worldRequired    bool
 
-	world      *string
-	instanceID *string
-	server     *minecloud.MCServer
+	world         *string
+	instanceID    *string
+	server        *minecloud.MCServer
+	acceptNewHost *bool
+
+	mc *minecloud.Minecloud
 }
 
-func NewSmartFlags(name string) *SmartFlags {
+func NewSmartFlags(mc *minecloud.Minecloud, name string) *SmartFlags {
+	flags := flag.NewFlagSet(name, flag.ExitOnError)
+	acceptNewHost := flags.Bool("accept", false, "accept a new SSH key if found")
+
 	return &SmartFlags{
-		flags: flag.NewFlagSet(name, flag.ExitOnError),
+		flags:         flags,
+		acceptNewHost: acceptNewHost,
+		mc:            mc,
 	}
 }
 
@@ -91,6 +99,10 @@ func (f *SmartFlags) ParseValidate(mc *minecloud.Minecloud, args []string) error
 		if *f.world == "" {
 			return errors.New("require -world")
 		}
+	}
+
+	if *f.acceptNewHost {
+		f.mc.Config.SSHDefaultNewKeyBehaviour = minecloud.SSHNewKeyAccept
 	}
 
 	return nil

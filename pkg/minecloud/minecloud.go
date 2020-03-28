@@ -8,9 +8,6 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"os/exec"
-	"path"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -21,20 +18,18 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// Minecloud makes a new AWS helper object
-func NewMinecloud(sess *session.Session) *Minecloud {
-	home := os.Getenv("HOME")
-	if home == "" {
-		panic("$HOME not set")
+// NewMinecloud makes a new AWS helper object
+func NewMinecloud(sess *session.Session, config Config) *Minecloud {
+	if config.SSHDefaultNewKeyBehaviour == SSHNewKeyUnspecified {
+		config.SSHDefaultNewKeyBehaviour = SSHNewKeyReject
 	}
-	configDir := path.Join(home, ".minecloud")
 
 	return &Minecloud{
-		Session:   sess,
-		Logger:    logrus.New(),
-		EC2:       ec2.New(sess),
-		S3:        s3.New(sess),
-		configDir: configDir,
+		Session: sess,
+		Logger:  logrus.New(),
+		EC2:     ec2.New(sess),
+		S3:      s3.New(sess),
+		Config:  config,
 	}
 }
 
@@ -44,15 +39,30 @@ type Minecloud struct {
 	EC2     *ec2.EC2
 	S3      *s3.S3
 	Logger  *logrus.Logger
+	Config  Config
 
-	account   *string
-	configDir string
+	account *string
+}
+
+type SSHNewKeyOpt int
+
+const (
+	SSHNewKeyUnspecified SSHNewKeyOpt = iota
+	SSHNewKeyReject
+	SSHNewKeyAccept
+)
+
+type Config struct {
+	SSHPrivateKey             []byte
+	SSHPrivateKeyFile         string
+	SSHKnownHostsPath         string
+	SSHDefaultNewKeyBehaviour SSHNewKeyOpt
 }
 
 type RunOpts struct {
-	Stdout       io.Writer
-	Stderr       io.Writer
-	AcceptNewKey bool
+	Stdout          io.Writer
+	Stderr          io.Writer
+	NewKeyBehaviour SSHNewKeyOpt
 }
 
 // RunOn runs the given script on the given instance.
@@ -77,12 +87,70 @@ func (a *Minecloud) OutputOn(instanceID, script string, opts RunOpts) ([]byte, [
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
+func (mc *Minecloud) tofuCallback(opts RunOpts) func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+	knownHostsFile := mc.Config.SSHKnownHostsPath
+
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		hostKeyCallback, err := knownhosts.New(knownHostsFile)
+		if err != nil {
+			return fmt.Errorf("could not create hostkeycallback function: %w", err)
+		}
+
+		// If we're in the known hosts, happy days
+		err = hostKeyCallback(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+
+		// If not in hosts but we accept a new key, add the key to the hosts file.
+		if opts.NewKeyBehaviour == SSHNewKeyAccept {
+			mc.Logger.Info("adding new host to known_hosts")
+
+			err = addToKnownHosts(knownHostsFile, hostname, key)
+			if err != nil {
+				return err
+			}
+		}
+
+		// try hosts file again now we've added it, just to verify.
+		hostKeyCallback, err = knownhosts.New(knownHostsFile)
+		if err != nil {
+			return fmt.Errorf("could not create hostkeycallback function: %w", err)
+		}
+
+		return hostKeyCallback(hostname, remote, key)
+	}
+}
+
+func ensureKeyBytes(mc *Minecloud) error {
+	if mc.Config.SSHPrivateKey != nil {
+		return nil
+	}
+
+	key, err := ioutil.ReadFile(mc.Config.SSHPrivateKeyFile)
+	if err != nil {
+		return err
+	}
+
+	mc.Config.SSHPrivateKey = key
+	return nil
+}
+
 // runOn runs the given script on the given instance.
 func (a *Minecloud) runOn(instanceID, script string, opts RunOpts) error {
 	// Need to get the public IP.
 	description, err := a.EC2.DescribeInstances(descInput(instanceID))
 	if err != nil {
 		return err
+	}
+
+	err = ensureKeyBytes(a)
+	if err != nil {
+		return err
+	}
+
+	if opts.NewKeyBehaviour == SSHNewKeyUnspecified {
+		opts.NewKeyBehaviour = a.Config.SSHDefaultNewKeyBehaviour
 	}
 
 	if len(description.Reservations) != 1 {
@@ -103,54 +171,17 @@ func (a *Minecloud) runOn(instanceID, script string, opts RunOpts) error {
 
 	ip := *ipPtr
 
-	key, err := ioutil.ReadFile(path.Join(a.configDir, "MinecraftServerKeyPair.pem"))
-	if err != nil {
-		return err
-	}
-
-	signer, err := ssh.ParsePrivateKey(key)
+	signer, err := ssh.ParsePrivateKey(a.Config.SSHPrivateKey)
 	if err != nil {
 		return fmt.Errorf("private: %w", err)
 	}
 
-	knownHostsFile := path.Join(os.Getenv("HOME"), ".ssh/known_hosts")
-
-	// Trust On First Use
-	tofuCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		hostKeyCallback, err := knownhosts.New(knownHostsFile)
-		if err != nil {
-			return fmt.Errorf("could not create hostkeycallback function: %w", err)
-		}
-
-		// If we're in the known hosts, happy days
-		err = hostKeyCallback(hostname, remote, key)
-		if err == nil {
-			return nil
-		}
-
-		// If not in hosts but we accept a new key, add the key to the hosts file.
-		if opts.AcceptNewKey {
-			a.Logger.Info("adding new host to known_hosts")
-
-			err = addToKnownHosts(knownHostsFile, hostname)
-			if err != nil {
-				return err
-			}
-		}
-
-		// try hosts file again now we've added it, just to verify.
-		hostKeyCallback, err = knownhosts.New(knownHostsFile)
-		if err != nil {
-			return fmt.Errorf("could not create hostkeycallback function: %w", err)
-		}
-
-		return hostKeyCallback(hostname, remote, key)
-	}
+	hostCallback := a.tofuCallback(opts)
 
 	config := &ssh.ClientConfig{
 		User:            "ec2-user",
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: tofuCallback,
+		HostKeyCallback: hostCallback,
 	}
 
 	client, err := ssh.Dial("tcp", ip+":22", config)
@@ -176,22 +207,17 @@ func (a *Minecloud) runOn(instanceID, script string, opts RunOpts) error {
 	return nil
 }
 
-func addToKnownHosts(knownHostsFile, hostname string) error {
-	// Quite hacky, should spend some time figuring out how to add
-	// to the hosts file with pure Go.
-	ip := strings.Split(hostname, ":")[0]
-	cmd := exec.Command("ssh-keyscan", "-H", ip)
-	bytes, err := cmd.Output()
-	if err != nil {
-		return err
-	}
+func addToKnownHosts(knownHostsFile, hostname string, key ssh.PublicKey) error {
+	hostname = knownhosts.Normalize(hostname)
+	line := knownhosts.Line([]string{hostname}, key)
+
 	file, err := os.OpenFile(knownHostsFile, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	_, err = file.Write(bytes)
+	_, err = file.Write([]byte(line + "\n"))
 	return err
 }
 

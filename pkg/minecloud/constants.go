@@ -5,3 +5,4 @@ const serverTagKey = "MinecraftServerName"
 
 // TODO: This actually needs to be configurable.
 const s3BucketName = "ogage-minecraft"
+const SecretsBucketName = "ogage-minecraft-secrets"

@@ -108,6 +108,8 @@ func ReserveInstance(services *Minecloud, name string) (string, error) {
 		KeyName: aws.String("MinecraftServerKeyPair"),
 	})
 
+	services.Logger.Info("API call complete")
+
 	if err != nil {
 		return "", err
 	}
@@ -157,7 +159,7 @@ func BootstrapInstance(services *Minecloud, instanceID string) error {
 		sudo yum install -y docker;
 		sudo service docker start;
 		sudo usermod -a -G docker ec2-user;
-	`, RunOpts{AcceptNewKey: true})
+	`, RunOpts{NewKeyBehaviour: SSHNewKeyAccept})
 
 	return err
 }
@@ -293,11 +295,13 @@ func WaitForSSH(services *Minecloud, instanceID string, acceptNewKey bool) error
 
 	for i := 0; i < retryAttempts; i++ {
 		services.Logger.Info("Attempting SSH connection...")
-		_, _, err = services.OutputOn(instanceID, "ls", RunOpts{AcceptNewKey: acceptNewKey})
+		_, _, err = services.OutputOn(instanceID, "ls", RunOpts{NewKeyBehaviour: SSHNewKeyAccept})
 		if err == nil {
 			services.Logger.Info("SSH established")
 			return nil
 		}
+
+		services.Logger.Info("SSH error:", err)
 		time.Sleep(5 * time.Second)
 	}
 
@@ -335,13 +339,12 @@ var ErrServerNotFound error = errors.New("server not found")
 
 // IsActiveInstanceState returns true if a state represents a running, not-shutting-down instance.
 func IsActiveInstanceState(state string) bool {
-	return state != "terminated" && state != "shutting-down"
+	return state == "running"
 }
 
 // FindRunning returns the server if it exists. Error will be ErrServerNotFound if
 // not found, and a different error otherwise.
 func FindRunning(svc *ec2.EC2, name string) (MCServer, error) {
-	// TODO: Filter AWS request rather than getting all servers.
 	servers, err := GetRunning(svc)
 	if err != nil {
 		return MCServer{}, err

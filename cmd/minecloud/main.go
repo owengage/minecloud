@@ -1,11 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-
-	"encoding/json"
+	"path"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/owengage/minecloud/pkg/minecloud"
@@ -72,7 +72,7 @@ func (cli *CLI) Exec(args []string) error {
 }
 
 func (cli *CLI) up(args []string) error {
-	flags := NewSmartFlags("bootstrap").RequireWorld()
+	flags := NewSmartFlags(cli.services, "up").RequireWorld()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (cli *CLI) up(args []string) error {
 }
 
 func (cli *CLI) down(args []string) error {
-	flags := NewSmartFlags("bootstrap").RequireInstance().RequireWorld()
+	flags := NewSmartFlags(cli.services, "down").RequireInstance().RequireWorld()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func (cli *CLI) down(args []string) error {
 }
 
 func (cli *CLI) terminate(args []string) error {
-	flags := NewSmartFlags("terminate").RequireInstance()
+	flags := NewSmartFlags(cli.services, "terminate").RequireInstance()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (cli *CLI) ls(args []string) error {
 }
 
 func (cli *CLI) remoteBootstrap(args []string) error {
-	flags := NewSmartFlags("bootstrap").RequireInstance()
+	flags := NewSmartFlags(cli.services, "bootstrap").RequireInstance()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (cli *CLI) remoteBootstrap(args []string) error {
 }
 
 func (cli *CLI) remoteReserve(args []string) error {
-	flags := NewSmartFlags("reserve").RequireWorld()
+	flags := NewSmartFlags(cli.services, "reserve").RequireWorld()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func (cli *CLI) remoteReserve(args []string) error {
 }
 
 func (cli *CLI) remoteDownloadWorld(args []string) error {
-	flags := NewSmartFlags("download-world").RequireInstance().RequireWorld()
+	flags := NewSmartFlags(cli.services, "download-world").RequireInstance().RequireWorld()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (cli *CLI) remoteDownloadWorld(args []string) error {
 }
 
 func (cli *CLI) remoteUploadWorld(args []string) error {
-	flags := NewSmartFlags("upload-world").RequireInstance().RequireWorld()
+	flags := NewSmartFlags(cli.services, "upload-world").RequireInstance().RequireWorld()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (cli *CLI) remoteUploadWorld(args []string) error {
 }
 
 func (cli *CLI) remoteStartServer(args []string) error {
-	flags := NewSmartFlags("status").RequireInstance()
+	flags := NewSmartFlags(cli.services, "status").RequireInstance()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -194,7 +194,7 @@ func (cli *CLI) remoteStartServer(args []string) error {
 }
 
 func (cli *CLI) remoteStatus(args []string) error {
-	flags := NewSmartFlags("status").RequireInstance()
+	flags := NewSmartFlags(cli.services, "status").RequireInstance()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -210,7 +210,7 @@ func (cli *CLI) remoteStatus(args []string) error {
 }
 
 func (cli *CLI) remoteStopServer(args []string) error {
-	flags := NewSmartFlags("stop-server").RequireInstance()
+	flags := NewSmartFlags(cli.services, "stop-server").RequireInstance()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func (cli *CLI) remoteStopServer(args []string) error {
 }
 
 func (cli *CLI) remoteRmServer(args []string) error {
-	flags := NewSmartFlags("rm-server").RequireInstance()
+	flags := NewSmartFlags(cli.services, "rm-server").RequireInstance()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (cli *CLI) remoteRmServer(args []string) error {
 }
 
 func (cli *CLI) remoteLogs(args []string) error {
-	flags := NewSmartFlags("logs").RequireInstance()
+	flags := NewSmartFlags(cli.services, "logs").RequireInstance()
 	if err := flags.ParseValidate(cli.services, args); err != nil {
 		return err
 	}
@@ -247,8 +247,15 @@ func main() {
 		SharedConfigState: session.SharedConfigEnable,
 	}))
 
+	home := os.Getenv("HOME")
+
+	config := minecloud.Config{
+		SSHPrivateKeyFile: path.Join(home, ".minecloud", "MinecraftServerKeyPair.pem"),
+		SSHKnownHostsPath: path.Join(home, ".ssh/known_hosts"),
+	}
+
 	cli := CLI{
-		services: minecloud.NewMinecloud(sess),
+		services: minecloud.NewMinecloud(sess, config),
 		logger:   logger,
 	}
 	cli.services.Logger = logger

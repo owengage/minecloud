@@ -1,9 +1,30 @@
-# Minecraft on AWS EC2
+# Minecloud: on demand Minecraft severs
 
-Code for running Minecraft servers on EC2. Currently has lots of hard coded
-peices that makes it difficult for anyone but myself to use.
+A CLI for spinning up and managing Minecraft servers on AWS. Lets you easily
+start and stop servers, meaning you only get charged for usage.
+
+# TODOs
+
+## Website
+
+I'd like a simple website that allows people in a cognito pool to manage
+servers.
+
+## Codify template
+
+The EC2 launch template is just stored on my AWS account. Being able to create
+it from this project would be useful. Or maybe not use the templates at all if
+it's going to be programatic anyway.
+
+## EBS?
+
+Is EBS a better way to store servers? Will it introduce more latency?
 
 # Log
+
+## 2020-03-28
+
+Fixed our use of SSH and created a basic lambda function. See commit message.
 
 ## 2020-03-26
 
@@ -30,9 +51,11 @@ I also need to rethink how the server wrapper works. I don't really want to
 tar up all of the server properties and ops and things. I'll probably want
 easy access to those in future.
 
-# TODOs
+# TODOs that are done
 
 ## All cloud
+
+Update: successfully got all the state onto the cloud.
 
 At the moment I store a few things on my own computer to make things easy. At
 the moment I store the elastic IP details and the instance ID of the EC2
@@ -49,16 +72,6 @@ Tags I'll likely want:
 
 I actually can't see what other ones I would want. If I tag the elastic IP and
 instance with these names then that should be all the information I need.
-
-## Codify template
-
-The EC2 launch template is just stored on my AWS account. Being able to create
-it from this project would be useful. Or maybe not use the templates at all if
-it's going to be programatic anyway.
-
-## EBS?
-
-Is EBS a better way to store servers? Will it introduce more latency?
 
 ## Wrap server
 
