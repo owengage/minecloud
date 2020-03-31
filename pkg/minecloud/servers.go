@@ -55,7 +55,7 @@ func GetRunning(svc *ec2.EC2) ([]MCServer, error) {
 }
 
 func storageKeyForName(name string) string {
-	return "servers/" + name + ".tar.gz"
+	return "servers/" + name + ".tar"
 }
 
 // FindStored returns the file name for a servers storage.
@@ -86,8 +86,8 @@ func ReserveInstance(services *Minecloud, name string) (string, error) {
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
 		MaxCount:     aws.Int64(1),
 		MinCount:     aws.Int64(1),
-		ImageId:      aws.String("ami-0cb790308f7591fa6"),
-		InstanceType: aws.String("m5.large"), // FIXME configurable
+		ImageId:      aws.String("ami-0cb790308f7591fa6"), // Normal Amazon Linux 2.
+		InstanceType: aws.String("m5.large"),              // FIXME configurable
 		IamInstanceProfile: &ec2.IamInstanceProfileSpecification{
 			Name: aws.String("MinecraftServerRole"),
 		},
@@ -135,16 +135,48 @@ func TerminateInstance(services *Minecloud, instanceID string) error {
 }
 
 // RunStored runs a Minecraft server on EC2 from a world stored on S3.
-func RunStored(services *Minecloud, name string) error {
+func RunStored(mc *Minecloud, world string) error {
 
-	instanceID, err := ReserveInstance(services, name)
+	err := FindStored(mc.S3, world)
+	if err != nil {
+		return err
+	}
 
-	err = SetupInstance(services, instanceID, name)
+	instanceID, err := ReserveInstance(mc, world)
+	if err != nil {
+		return err
+	}
+
+	err = SetupInstance(mc, instanceID, world)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// StoreRunning takes a running minecraft server and safely stops, saves, and terminates the instance.
+func StoreRunning(mc *Minecloud, world string) error {
+	server, err := FindRunning(mc.EC2, world)
+	if err != nil {
+		return err
+	}
+
+	if server.InstanceState == "terminated" || server.InstanceState == "shutting-down" {
+		return fmt.Errorf("server not running (%s): state is %s", server.Name, server.InstanceState)
+	}
+
+	err = StopServerWrapper(mc, server.InstanceID)
+	if err != nil {
+		return fmt.Errorf("failed to stop server wrapper (%s): %w", server.Name, err)
+	}
+
+	err = UploadWorld(mc, server.InstanceID, server.Name)
+	if err != nil {
+		return fmt.Errorf("failed to upload world (%s): %w", server.Name, err)
+	}
+
+	return TerminateInstance(mc, server.InstanceID)
 }
 
 // BootstrapInstance takes an existing EC2 instance and installs all prerequisites
@@ -172,9 +204,9 @@ func DownloadWorld(services *Minecloud, instanceID, name string) error {
 
 	err := services.RunOn(instanceID, fmt.Sprintf(`
 		set -x
-		aws s3 cp %s server.tar.gz
-		tar xvf server.tar.gz
-		rm server.tar.gz
+		aws s3 cp %s server.tar
+		tar xf server.tar
+		rm server.tar
 		sudo mv server/ /
 	`, s3ObjectPath), RunOpts{})
 
@@ -186,7 +218,7 @@ func Status(services *Minecloud, instanceID string) (serverwrapper.StatusRespons
 
 	out, _, err := services.OutputOn(instanceID, "curl localhost:8080/status", RunOpts{})
 	if err != nil {
-		return serverwrapper.StatusResponse{}, fmt.Errorf("up: %w", err)
+		return serverwrapper.StatusResponse{}, fmt.Errorf("status: %w", err)
 	}
 
 	var statusResponse serverwrapper.StatusResponse
@@ -210,9 +242,9 @@ func UploadWorld(services *Minecloud, instanceID, name string) error {
 
 	err = services.RunOn(instanceID, fmt.Sprintf(`
 		set -x
-		tar czvf server.tar.gz /server
-		aws s3 cp server.tar.gz %s
-		rm server.tar.gz
+		tar cf server.tar /server
+		aws s3 cp server.tar %s
+		rm server.tar
 	`, s3ObjectPath), RunOpts{})
 
 	return err

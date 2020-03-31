@@ -87,53 +87,24 @@ func (a *Minecloud) OutputOn(instanceID, script string, opts RunOpts) ([]byte, [
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
-func (mc *Minecloud) tofuCallback(opts RunOpts) func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-	knownHostsFile := mc.Config.SSHKnownHostsPath
-
-	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		hostKeyCallback, err := knownhosts.New(knownHostsFile)
+// Account is the AWS account being used to make requests.
+func (a *Minecloud) Account() (string, error) {
+	if a.account == nil {
+		STS := sts.New(a.Session)
+		identity, err := STS.GetCallerIdentity(nil)
 		if err != nil {
-			return fmt.Errorf("could not create hostkeycallback function: %w", err)
+			return "", err
 		}
 
-		// If we're in the known hosts, happy days
-		err = hostKeyCallback(hostname, remote, key)
-		if err == nil {
-			return nil
-		}
-
-		// If not in hosts but we accept a new key, add the key to the hosts file.
-		if opts.NewKeyBehaviour == SSHNewKeyAccept {
-			mc.Logger.Info("adding new host to known_hosts")
-
-			err = addToKnownHosts(knownHostsFile, hostname, key)
-			if err != nil {
-				return err
-			}
-		}
-
-		// try hosts file again now we've added it, just to verify.
-		hostKeyCallback, err = knownhosts.New(knownHostsFile)
-		if err != nil {
-			return fmt.Errorf("could not create hostkeycallback function: %w", err)
-		}
-
-		return hostKeyCallback(hostname, remote, key)
+		a.account = identity.Account
 	}
+
+	return *a.account, nil
 }
 
-func ensureKeyBytes(mc *Minecloud) error {
-	if mc.Config.SSHPrivateKey != nil {
-		return nil
-	}
-
-	key, err := ioutil.ReadFile(mc.Config.SSHPrivateKeyFile)
-	if err != nil {
-		return err
-	}
-
-	mc.Config.SSHPrivateKey = key
-	return nil
+// Region returns the region we are running commands in.
+func (a *Minecloud) Region() string {
+	return *a.Session.Config.Region
 }
 
 // runOn runs the given script on the given instance.
@@ -207,6 +178,55 @@ func (a *Minecloud) runOn(instanceID, script string, opts RunOpts) error {
 	return nil
 }
 
+func (mc *Minecloud) tofuCallback(opts RunOpts) func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+	knownHostsFile := mc.Config.SSHKnownHostsPath
+
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		hostKeyCallback, err := knownhosts.New(knownHostsFile)
+		if err != nil {
+			return fmt.Errorf("could not create hostkeycallback function: %w", err)
+		}
+
+		// If we're in the known hosts, happy days
+		err = hostKeyCallback(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+
+		// If not in hosts but we accept a new key, add the key to the hosts file.
+		if opts.NewKeyBehaviour == SSHNewKeyAccept {
+			mc.Logger.Info("adding new host to known_hosts")
+
+			err = addToKnownHosts(knownHostsFile, hostname, key)
+			if err != nil {
+				return err
+			}
+		}
+
+		// try hosts file again now we've added it, just to verify.
+		hostKeyCallback, err = knownhosts.New(knownHostsFile)
+		if err != nil {
+			return fmt.Errorf("could not create hostkeycallback function: %w", err)
+		}
+
+		return hostKeyCallback(hostname, remote, key)
+	}
+}
+
+func ensureKeyBytes(mc *Minecloud) error {
+	if mc.Config.SSHPrivateKey != nil {
+		return nil
+	}
+
+	key, err := ioutil.ReadFile(mc.Config.SSHPrivateKeyFile)
+	if err != nil {
+		return err
+	}
+
+	mc.Config.SSHPrivateKey = key
+	return nil
+}
+
 func addToKnownHosts(knownHostsFile, hostname string, key ssh.PublicKey) error {
 	hostname = knownhosts.Normalize(hostname)
 	line := knownhosts.Line([]string{hostname}, key)
@@ -219,24 +239,4 @@ func addToKnownHosts(knownHostsFile, hostname string, key ssh.PublicKey) error {
 
 	_, err = file.Write([]byte(line + "\n"))
 	return err
-}
-
-// Account is the AWS account being used to make requests.
-func (a *Minecloud) Account() (string, error) {
-	if a.account == nil {
-		STS := sts.New(a.Session)
-		identity, err := STS.GetCallerIdentity(nil)
-		if err != nil {
-			return "", err
-		}
-
-		a.account = identity.Account
-	}
-
-	return *a.account, nil
-}
-
-// Region returns the region we are running commands in.
-func (a *Minecloud) Region() string {
-	return *a.Session.Config.Region
 }

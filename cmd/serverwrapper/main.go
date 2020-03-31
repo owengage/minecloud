@@ -15,6 +15,26 @@ import (
 	"github.com/owengage/minecloud/pkg/serverwrapper"
 )
 
+/*
+
+Example of joining
+[08:28:47] [User Authenticator #1/INFO]: UUID of player NeroGage is a87fddc1-dc61-4c11-8472-f49001a15d21
+[08:28:47] [Server thread/INFO]: NeroGage[/127.0.0.1:33062] logged in with entity id 366 at (-144.4019021007376, 64.0, -157.54162185876902)
+[08:28:47] [Server thread/INFO]: NeroGage joined the game
+
+Example of leaving
+[08:28:57] [Server thread/INFO]: NeroGage left the game
+
+*/
+
+type CommandRequest struct {
+	Command string `json:"command"`
+}
+
+type MaybeErrResponse struct {
+	Error error `json:"error",omitempty`
+}
+
 func main() {
 	address := flag.String("address", "", "IP address to bind to")
 	serverJar := flag.String("jar", "", "Minecraft server JAR file")
@@ -50,6 +70,25 @@ func main() {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
+	})
+
+	http.HandleFunc("/command", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req CommandRequest
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		err = server.Send(req.Command)
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(MaybeErrResponse{Error: err})
 	})
 
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +148,11 @@ func (server *Server) Output() <-chan string {
 // RequestStop sends a request for the server to stop.
 func (server *Server) RequestStop() error {
 	server.input <- "/stop\n"
+	return <-server.inputResponse
+}
+
+func (server *Server) Send(cmd string) error {
+	server.input <- cmd + "\n"
 	return <-server.inputResponse
 }
 

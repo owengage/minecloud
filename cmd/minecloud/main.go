@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path"
 
@@ -77,14 +76,6 @@ func (cli *CLI) up(args []string) error {
 		return err
 	}
 
-	err := minecloud.FindStored(cli.services.S3, flags.World())
-	if err == minecloud.ErrServerNotFound {
-		return fmt.Errorf("up: no server called %s, use 'create'", flags.World())
-	} else if err != nil {
-		return fmt.Errorf("up: %w", err)
-	}
-
-	// Server not running, and we have it in storage. Fire it up!
 	return minecloud.RunStored(cli.services, flags.World())
 }
 
@@ -94,23 +85,7 @@ func (cli *CLI) down(args []string) error {
 		return err
 	}
 
-	server := flags.Server()
-
-	if server.InstanceState == "terminated" || server.InstanceState == "shutting-down" {
-		return fmt.Errorf("down: server already terminated: %s", server.Name)
-	}
-
-	err := minecloud.StopServerWrapper(cli.services, server.InstanceID)
-	if err != nil {
-		return fmt.Errorf("down: failed to stop server wrapper (%s): %w", server.Name, err)
-	}
-
-	err = minecloud.UploadWorld(cli.services, server.InstanceID, server.Name)
-	if err != nil {
-		return fmt.Errorf("down: failed to upload world (%s): %w", server.Name, err)
-	}
-
-	return minecloud.TerminateInstance(cli.services, server.InstanceID)
+	return minecloud.StoreRunning(cli.services, flags.World())
 }
 
 func (cli *CLI) terminate(args []string) error {
