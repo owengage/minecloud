@@ -1,4 +1,4 @@
-package minecloud
+package awsdetail
 
 import (
 	"bytes"
@@ -18,13 +18,13 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// NewMinecloud makes a new AWS helper object
-func NewMinecloud(sess *session.Session, config Config) *Minecloud {
+// NewDetail makes a new AWS helper object
+func NewDetail(sess *session.Session, config Config) *Detail {
 	if config.SSHDefaultNewKeyBehaviour == SSHNewKeyUnspecified {
 		config.SSHDefaultNewKeyBehaviour = SSHNewKeyReject
 	}
 
-	return &Minecloud{
+	return &Detail{
 		Session: sess,
 		Logger:  logrus.New(),
 		EC2:     ec2.New(sess),
@@ -33,8 +33,8 @@ func NewMinecloud(sess *session.Session, config Config) *Minecloud {
 	}
 }
 
-// Minecloud contains useful bits for working with AWS.
-type Minecloud struct {
+// Detail contains useful bits for working with AWS.
+type Detail struct {
 	Session *session.Session
 	EC2     *ec2.EC2
 	S3      *s3.S3
@@ -66,7 +66,7 @@ type RunOpts struct {
 }
 
 // RunOn runs the given script on the given instance.
-func (a *Minecloud) RunOn(instanceID, script string, opts RunOpts) error {
+func (a *Detail) RunOn(instanceID, script string, opts RunOpts) error {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
 	}
@@ -77,7 +77,7 @@ func (a *Minecloud) RunOn(instanceID, script string, opts RunOpts) error {
 }
 
 // OutputOn returns stdout of running the given script
-func (a *Minecloud) OutputOn(instanceID, script string, opts RunOpts) ([]byte, []byte, error) {
+func (a *Detail) OutputOn(instanceID, script string, opts RunOpts) ([]byte, []byte, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	opts.Stdout = &stdout
@@ -88,7 +88,7 @@ func (a *Minecloud) OutputOn(instanceID, script string, opts RunOpts) ([]byte, [
 }
 
 // Account is the AWS account being used to make requests.
-func (a *Minecloud) Account() (string, error) {
+func (a *Detail) Account() (string, error) {
 	if a.account == nil {
 		STS := sts.New(a.Session)
 		identity, err := STS.GetCallerIdentity(nil)
@@ -103,12 +103,12 @@ func (a *Minecloud) Account() (string, error) {
 }
 
 // Region returns the region we are running commands in.
-func (a *Minecloud) Region() string {
+func (a *Detail) Region() string {
 	return *a.Session.Config.Region
 }
 
 // runOn runs the given script on the given instance.
-func (a *Minecloud) runOn(instanceID, script string, opts RunOpts) error {
+func (a *Detail) runOn(instanceID, script string, opts RunOpts) error {
 	// Need to get the public IP.
 	description, err := a.EC2.DescribeInstances(descInput(instanceID))
 	if err != nil {
@@ -178,8 +178,8 @@ func (a *Minecloud) runOn(instanceID, script string, opts RunOpts) error {
 	return nil
 }
 
-func (mc *Minecloud) tofuCallback(opts RunOpts) func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-	knownHostsFile := mc.Config.SSHKnownHostsPath
+func (detail *Detail) tofuCallback(opts RunOpts) func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+	knownHostsFile := detail.Config.SSHKnownHostsPath
 
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		hostKeyCallback, err := knownhosts.New(knownHostsFile)
@@ -195,7 +195,7 @@ func (mc *Minecloud) tofuCallback(opts RunOpts) func(hostname string, remote net
 
 		// If not in hosts but we accept a new key, add the key to the hosts file.
 		if opts.NewKeyBehaviour == SSHNewKeyAccept {
-			mc.Logger.Info("adding new host to known_hosts")
+			detail.Logger.Info("adding new host to known_hosts")
 
 			err = addToKnownHosts(knownHostsFile, hostname, key)
 			if err != nil {
@@ -213,17 +213,17 @@ func (mc *Minecloud) tofuCallback(opts RunOpts) func(hostname string, remote net
 	}
 }
 
-func ensureKeyBytes(mc *Minecloud) error {
-	if mc.Config.SSHPrivateKey != nil {
+func ensureKeyBytes(detail *Detail) error {
+	if detail.Config.SSHPrivateKey != nil {
 		return nil
 	}
 
-	key, err := ioutil.ReadFile(mc.Config.SSHPrivateKeyFile)
+	key, err := ioutil.ReadFile(detail.Config.SSHPrivateKeyFile)
 	if err != nil {
 		return err
 	}
 
-	mc.Config.SSHPrivateKey = key
+	detail.Config.SSHPrivateKey = key
 	return nil
 }
 

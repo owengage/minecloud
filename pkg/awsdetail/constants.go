@@ -1,4 +1,4 @@
-package minecloud
+package awsdetail
 
 // ServerTagKey is the key used to tag minecraft servers with their name.
 const serverTagKey = "MinecraftServerName"

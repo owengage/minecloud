@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/owengage/minecloud/pkg/minecloud"
+	"github.com/owengage/minecloud/pkg/awsdetail"
 )
 
 type SmartFlags struct {
@@ -17,20 +17,20 @@ type SmartFlags struct {
 
 	world         *string
 	instanceID    *string
-	server        *minecloud.MCServer
+	server        *awsdetail.MCServer
 	acceptNewHost *bool
 
-	mc *minecloud.Minecloud
+	detail *awsdetail.Detail
 }
 
-func NewSmartFlags(mc *minecloud.Minecloud, name string) *SmartFlags {
+func NewSmartFlags(detail *awsdetail.Detail, name string) *SmartFlags {
 	flags := flag.NewFlagSet(name, flag.ExitOnError)
 	acceptNewHost := flags.Bool("accept", false, "accept a new SSH key if found")
 
 	return &SmartFlags{
 		flags:         flags,
 		acceptNewHost: acceptNewHost,
-		mc:            mc,
+		detail:        detail,
 	}
 }
 
@@ -41,7 +41,7 @@ func (f *SmartFlags) InstanceID() string {
 	return *f.instanceID
 }
 
-func (f *SmartFlags) Server() *minecloud.MCServer {
+func (f *SmartFlags) Server() *awsdetail.MCServer {
 	if f.server == nil {
 		panic("server not found, forgot to parse flags?")
 	}
@@ -73,7 +73,7 @@ func (f *SmartFlags) RequireWorld() *SmartFlags {
 	return f
 }
 
-func (f *SmartFlags) ParseValidate(mc *minecloud.Minecloud, args []string) error {
+func (f *SmartFlags) ParseValidate(detail *awsdetail.Detail, args []string) error {
 	f.flags.Parse(args)
 
 	if f.instanceRequired {
@@ -82,7 +82,7 @@ func (f *SmartFlags) ParseValidate(mc *minecloud.Minecloud, args []string) error
 		}
 
 		if *f.instanceID == "" {
-			server, err := minecloud.FindRunning(mc.EC2, *f.world)
+			server, err := awsdetail.FindRunning(detail.EC2, *f.world)
 			if err != nil {
 				return err
 			}
@@ -102,7 +102,7 @@ func (f *SmartFlags) ParseValidate(mc *minecloud.Minecloud, args []string) error
 	}
 
 	if *f.acceptNewHost {
-		f.mc.Config.SSHDefaultNewKeyBehaviour = minecloud.SSHNewKeyAccept
+		f.detail.Config.SSHDefaultNewKeyBehaviour = awsdetail.SSHNewKeyAccept
 	}
 
 	return nil

@@ -7,14 +7,14 @@ import (
 	"path"
 
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/owengage/minecloud/pkg/minecloud"
+	"github.com/owengage/minecloud/pkg/awsdetail"
 	"github.com/sirupsen/logrus"
 )
 
 // CLI for minecloud
 type CLI struct {
-	services *minecloud.Minecloud
-	logger   *logrus.Logger
+	detail *awsdetail.Detail
+	logger *logrus.Logger
 }
 
 // Exec based on command line args
@@ -25,43 +25,49 @@ func (cli *CLI) Exec(args []string) error {
 
 	switch subcommand {
 	// High level commands
-	case "ls":
-		err = cli.ls(remainder)
 	case "up":
 		err = cli.up(remainder)
 	case "down":
 		err = cli.down(remainder)
 
 	// Plumbing up
-	case "remote-reserve":
+	case "ls":
+		err = cli.ls(remainder)
+	case "reserve":
 		err = cli.remoteReserve(remainder)
-	case "remote-bootstrap":
+	case "bootstrap":
 		err = cli.remoteBootstrap(remainder)
-	case "remote-download-world":
+	case "download":
 		err = cli.remoteDownloadWorld(remainder)
-	case "remote-start-server":
+	case "start":
 		err = cli.remoteStartServer(remainder)
 
 	// Diagnostic
-	case "remote-status":
+	case "status":
 		err = cli.remoteStatus(remainder)
-	case "remote-logs":
+	case "logs":
 		err = cli.remoteLogs(remainder)
 	case "aws-account":
-		account, err := cli.services.Account()
+		account, err := cli.detail.Account()
 		if err == nil {
 			cli.logger.Infoln(account)
 		}
 
 	// Plumbing down
-	case "remote-upload-world":
+	case "upload":
 		err = cli.remoteUploadWorld(remainder)
-	case "remote-stop-server":
+	case "stop":
 		err = cli.remoteStopServer(remainder)
-	case "remote-rm-server":
+	case "kill":
 		err = cli.remoteRmServer(remainder)
 	case "terminate":
 		err = cli.terminate(remainder)
+
+	// Experimental
+	case "claim":
+		err = cli.debugClaim(remainder)
+	case "unclaim":
+		err = cli.debugUnclaim(remainder)
 
 	default:
 		err = errors.New("unknown subcommand")
@@ -71,35 +77,35 @@ func (cli *CLI) Exec(args []string) error {
 }
 
 func (cli *CLI) up(args []string) error {
-	flags := NewSmartFlags(cli.services, "up").RequireWorld()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "up").RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return minecloud.RunStored(cli.services, flags.World())
+	return awsdetail.RunStored(cli.detail, flags.World())
 }
 
 func (cli *CLI) down(args []string) error {
-	flags := NewSmartFlags(cli.services, "down").RequireInstance().RequireWorld()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "down").RequireInstance().RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return minecloud.StoreRunning(cli.services, flags.World())
+	return awsdetail.StoreRunning(cli.detail, flags.World())
 }
 
 func (cli *CLI) terminate(args []string) error {
-	flags := NewSmartFlags(cli.services, "terminate").RequireInstance()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "terminate").RequireInstance()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return minecloud.TerminateInstance(cli.services, flags.InstanceID())
+	return awsdetail.TerminateInstance(cli.detail, flags.InstanceID())
 }
 
 func (cli *CLI) ls(args []string) error {
 
-	servers, err := minecloud.GetRunning(cli.services.EC2)
+	servers, err := awsdetail.GetRunning(cli.detail.EC2)
 	if err != nil {
 		return err
 	}
@@ -117,21 +123,21 @@ func (cli *CLI) ls(args []string) error {
 }
 
 func (cli *CLI) remoteBootstrap(args []string) error {
-	flags := NewSmartFlags(cli.services, "bootstrap").RequireInstance()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "bootstrap").RequireInstance()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return minecloud.BootstrapInstance(cli.services, flags.InstanceID())
+	return awsdetail.BootstrapInstance(cli.detail, flags.InstanceID())
 }
 
 func (cli *CLI) remoteReserve(args []string) error {
-	flags := NewSmartFlags(cli.services, "reserve").RequireWorld()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "reserve").RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	id, err := minecloud.ReserveInstance(cli.services, flags.World())
+	id, err := awsdetail.ReserveInstance(cli.detail, flags.World())
 	if err != nil {
 		return err
 	}
@@ -141,40 +147,69 @@ func (cli *CLI) remoteReserve(args []string) error {
 	return nil
 }
 
-func (cli *CLI) remoteDownloadWorld(args []string) error {
-	flags := NewSmartFlags(cli.services, "download-world").RequireInstance().RequireWorld()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+func (cli *CLI) debugClaim(args []string) error {
+	flags := NewSmartFlags(cli.detail, "claim").RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return minecloud.DownloadWorld(cli.services, flags.InstanceID(), flags.World())
+	err := awsdetail.ClaimWorld(cli.detail, flags.World())
+	if err != nil {
+		return err
+	}
+
+	cli.logger.Infof("claimed: %s", flags.World())
+	return nil
+}
+
+func (cli *CLI) debugUnclaim(args []string) error {
+	flags := NewSmartFlags(cli.detail, "unclaim").RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
+		return err
+	}
+
+	err := awsdetail.UnclaimWorld(cli.detail, flags.World())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *CLI) remoteDownloadWorld(args []string) error {
+	flags := NewSmartFlags(cli.detail, "download-world").RequireInstance().RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
+		return err
+	}
+
+	return awsdetail.DownloadWorld(cli.detail, flags.InstanceID(), flags.World())
 }
 
 func (cli *CLI) remoteUploadWorld(args []string) error {
-	flags := NewSmartFlags(cli.services, "upload-world").RequireInstance().RequireWorld()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "upload-world").RequireInstance().RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return minecloud.UploadWorld(cli.services, flags.InstanceID(), flags.World())
+	return awsdetail.UploadWorld(cli.detail, flags.InstanceID(), flags.World())
 }
 
 func (cli *CLI) remoteStartServer(args []string) error {
-	flags := NewSmartFlags(cli.services, "status").RequireInstance()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "status").RequireInstance()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return minecloud.StartServerWrapper(cli.services, flags.InstanceID())
+	return awsdetail.StartServerWrapper(cli.detail, flags.InstanceID())
 }
 
 func (cli *CLI) remoteStatus(args []string) error {
-	flags := NewSmartFlags(cli.services, "status").RequireInstance()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "status").RequireInstance()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	resp, err := minecloud.Status(cli.services, flags.InstanceID())
+	resp, err := awsdetail.Status(cli.detail, flags.InstanceID())
 	if err != nil {
 		return err
 	}
@@ -185,30 +220,30 @@ func (cli *CLI) remoteStatus(args []string) error {
 }
 
 func (cli *CLI) remoteStopServer(args []string) error {
-	flags := NewSmartFlags(cli.services, "stop-server").RequireInstance()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "stop-server").RequireInstance()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return cli.services.RunOn(flags.InstanceID(), "curl -X POST localhost:8080/stop", minecloud.RunOpts{})
+	return cli.detail.RunOn(flags.InstanceID(), "curl -X POST localhost:8080/stop", awsdetail.RunOpts{})
 }
 
 func (cli *CLI) remoteRmServer(args []string) error {
-	flags := NewSmartFlags(cli.services, "rm-server").RequireInstance()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "rm-server").RequireInstance()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return cli.services.RunOn(flags.InstanceID(), "docker rm -f serverwrapper", minecloud.RunOpts{})
+	return cli.detail.RunOn(flags.InstanceID(), "docker rm -f serverwrapper", awsdetail.RunOpts{})
 }
 
 func (cli *CLI) remoteLogs(args []string) error {
-	flags := NewSmartFlags(cli.services, "logs").RequireInstance()
-	if err := flags.ParseValidate(cli.services, args); err != nil {
+	flags := NewSmartFlags(cli.detail, "logs").RequireInstance()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return cli.services.RunOn(flags.InstanceID(), "docker logs serverwrapper", minecloud.RunOpts{})
+	return cli.detail.RunOn(flags.InstanceID(), "docker logs serverwrapper", awsdetail.RunOpts{})
 }
 
 func main() {
@@ -224,16 +259,16 @@ func main() {
 
 	home := os.Getenv("HOME")
 
-	config := minecloud.Config{
+	config := awsdetail.Config{
 		SSHPrivateKeyFile: path.Join(home, ".minecloud", "MinecraftServerKeyPair.pem"),
 		SSHKnownHostsPath: path.Join(home, ".ssh/known_hosts"),
 	}
 
 	cli := CLI{
-		services: minecloud.NewMinecloud(sess, config),
-		logger:   logger,
+		detail: awsdetail.NewDetail(sess, config),
+		logger: logger,
 	}
-	cli.services.Logger = logger
+	cli.detail.Logger = logger
 
 	err := cli.Exec(os.Args)
 	if err != nil {
