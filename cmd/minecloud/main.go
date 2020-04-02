@@ -25,59 +25,40 @@ type CLI struct {
 func (cli *CLI) Exec(args []string) error {
 	subcommand := args[1]
 	remainder := args[2:]
-	var err error
 
-	switch subcommand {
-	// High level commands
-	case "up":
-		err = cli.up(remainder)
-	case "down":
-		err = cli.down(remainder)
+	cmdMap := map[string]func([]string) error{
+		// high level commands
+		"up":   cli.up,
+		"down": cli.down,
 
-	// Plumbing up
-	case "ls":
-		err = cli.ls(remainder)
-	case "reserve":
-		err = cli.remoteReserve(remainder)
-	case "bootstrap":
-		err = cli.remoteBootstrap(remainder)
-	case "download":
-		err = cli.remoteDownloadWorld(remainder)
-	case "start":
-		err = cli.remoteStartServer(remainder)
-
-	// Diagnostic
-	case "status":
-		err = cli.remoteStatus(remainder)
-	case "logs":
-		err = cli.remoteLogs(remainder)
-	case "aws-account":
-		account, err := cli.detail.Account()
-		if err == nil {
-			cli.logger.Infoln(account)
-		}
-
-	// Plumbing down
-	case "upload":
-		err = cli.remoteUploadWorld(remainder)
-	case "stop":
-		err = cli.remoteStopServer(remainder)
-	case "kill":
-		err = cli.remoteRmServer(remainder)
-	case "terminate":
-		err = cli.terminate(remainder)
-
-	// Experimental
-	case "claim":
-		err = cli.debugClaim(remainder)
-	case "unclaim":
-		err = cli.debugUnclaim(remainder)
-
-	default:
-		err = errors.New("unknown subcommand")
+		// plumbing commands
+		"ls":        cli.ls,
+		"reserve":   cli.remoteReserve,
+		"bootstrap": cli.remoteBootstrap,
+		"download":  cli.remoteDownloadWorld,
+		"start":     cli.remoteStartServer,
+		"status":    cli.remoteStatus,
+		"logs":      cli.remoteLogs,
+		"upload":    cli.remoteUploadWorld,
+		"stop":      cli.remoteStopServer,
+		"kill":      cli.remoteRmServer,
+		"terminate": cli.terminate,
+		"claim":     cli.debugClaim,
+		"unclaim":   cli.debugUnclaim,
+		"aws-account": func(remainder []string) error {
+			account, err := cli.detail.Account()
+			if err == nil {
+				cli.logger.Infoln(account)
+			}
+			return err
+		},
 	}
 
-	return err
+	f, ok := cmdMap[subcommand]
+	if !ok {
+		return errors.New("unknown subcommand")
+	}
+	return f(remainder)
 }
 
 func (cli *CLI) up(args []string) error {
