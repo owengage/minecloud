@@ -37,7 +37,7 @@ func main() {
 
 	singleton = functions.Singleton{
 		Detail:  detail,
-		Invoker: &functions.LambdaInvoker{LS: ls.New(awsSession)},
+		Invoker: &awsdetail.LambdaInvoker{LS: ls.New(awsSession)},
 	}
 
 	lambda.Start(singleton.HandleRequest)

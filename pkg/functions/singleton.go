@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/owengage/minecloud/pkg/awsdetail"
 )
@@ -23,56 +22,23 @@ type Singleton struct {
 	Invoker Invoker
 }
 
-type Records struct {
-	Records []Record `json:"Records"`
-}
-
-type Record struct {
-	Body string `json:"body"`
-}
-
 // HandleRequest from lambda
-func (env *Singleton) HandleRequest(ctx context.Context, records Records) error {
-	errorCount := 0
+func (env *Singleton) HandleRequest(ctx context.Context, event Event) error {
 
-	for _, msg := range records.Records {
-		log.Printf("Event: %+v\n", msg.Body)
-
-		event := Event{}
-		err := json.Unmarshal([]byte(msg.Body), &event)
-		if err != nil {
-			errorCount++
-			continue
-		}
-
-		if event.Command == nil {
-			log.Printf("command not specified\n")
-			errorCount++
-			continue
-		}
-
-		if event.World == nil {
-			log.Printf("world not specified\n")
-			errorCount++
-			continue
-		}
-
-		switch *event.Command {
-		case "up":
-			err = env.HandleUp(ctx, event)
-		case "down":
-			err = nil
-		}
-
-		if err != nil {
-			fmt.Println(err)
-			errorCount++
-			continue
-		}
+	if event.Command == nil {
+		return fmt.Errorf("command not specified")
 	}
 
-	if errorCount > 0 {
-		return fmt.Errorf("encounted %d errors", errorCount)
+	if event.World == nil {
+		return fmt.Errorf("world not specified")
+
+	}
+
+	switch *event.Command {
+	case "up":
+		return env.HandleUp(ctx, event)
+	case "down":
+		return env.HandleDown(ctx, event)
 	}
 
 	return nil
@@ -80,6 +46,20 @@ func (env *Singleton) HandleRequest(ctx context.Context, records Records) error 
 
 func (env *Singleton) HandleUp(ctx context.Context, event Event) error {
 	err := awsdetail.ClaimWorld(env.Detail, *event.World)
+	if err != nil {
+		return err
+	}
+
+	b, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	return env.Invoker.Invoke("MinecraftCommand", b)
+}
+
+func (env *Singleton) HandleDown(ctx context.Context, event Event) error {
+	err := awsdetail.UnclaimWorld(env.Detail, *event.World)
 	if err != nil {
 		return err
 	}

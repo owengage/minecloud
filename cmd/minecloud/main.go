@@ -6,13 +6,17 @@ import (
 	"os"
 	"path"
 
+	"github.com/owengage/minecloud/pkg/mcaws"
+
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/owengage/minecloud/pkg/awsdetail"
+	"github.com/owengage/minecloud/pkg/minecloud"
 	"github.com/sirupsen/logrus"
 )
 
 // CLI for minecloud
 type CLI struct {
+	mc     minecloud.Interface
 	detail *awsdetail.Detail
 	logger *logrus.Logger
 }
@@ -82,7 +86,7 @@ func (cli *CLI) up(args []string) error {
 		return err
 	}
 
-	return awsdetail.RunStored(cli.detail, flags.World())
+	return cli.mc.Up(minecloud.World(flags.World()))
 }
 
 func (cli *CLI) down(args []string) error {
@@ -91,7 +95,7 @@ func (cli *CLI) down(args []string) error {
 		return err
 	}
 
-	return awsdetail.StoreRunning(cli.detail, flags.World())
+	return cli.mc.Down(minecloud.World(flags.World()))
 }
 
 func (cli *CLI) terminate(args []string) error {
@@ -264,8 +268,12 @@ func main() {
 		SSHKnownHostsPath: path.Join(home, ".ssh/known_hosts"),
 	}
 
+	detail := awsdetail.NewDetail(sess, config)
+	mc := mcaws.NewMinecloudAWS(sess, detail, true)
+
 	cli := CLI{
-		detail: awsdetail.NewDetail(sess, config),
+		mc:     mc,
+		detail: detail,
 		logger: logger,
 	}
 	cli.detail.Logger = logger

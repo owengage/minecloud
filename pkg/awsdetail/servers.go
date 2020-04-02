@@ -303,6 +303,7 @@ func StopServerWrapper(services *Detail, instanceID string) error {
 
 // ClaimWorld for use on a server.
 func ClaimWorld(detail *Detail, world string) error {
+	detail.Logger.Info("claiming")
 	db := dynamodb.New(detail.Session)
 
 	_, err := db.PutItem(&dynamodb.PutItemInput{
@@ -328,6 +329,8 @@ func ClaimWorld(detail *Detail, world string) error {
 
 // UnclaimWorld for use on a server.
 func UnclaimWorld(detail *Detail, world string) error {
+	detail.Logger.Info("unclaiming")
+
 	db := dynamodb.New(detail.Session)
 
 	_, err := db.DeleteItem(&dynamodb.DeleteItemInput{

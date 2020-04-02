@@ -8,10 +8,13 @@ import (
 	"github.com/owengage/minecloud/pkg/awsdetail"
 )
 
+// LocalInvoker invokes the same code as AWS lambdas, but locally.
+// Note that the functions themselves may still interact with AWS.
 type LocalInvoker struct {
 	Detail *awsdetail.Detail
 }
 
+// Invoke function locally.
 func (invoker *LocalInvoker) Invoke(name string, payload []byte) error {
 	switch name {
 	case "MinecraftCommand":
@@ -22,9 +25,9 @@ func (invoker *LocalInvoker) Invoke(name string, payload []byte) error {
 		}
 		cmd := Command{Detail: invoker.Detail}
 		return cmd.HandleRequest(context.Background(), event)
-	case "MinecraftSingleton":
-		records := Records{}
-		err := json.Unmarshal(payload, &records)
+	case "MinecloudSingleton":
+		event := Event{}
+		err := json.Unmarshal(payload, &event)
 		if err != nil {
 			return err
 		}
@@ -32,7 +35,7 @@ func (invoker *LocalInvoker) Invoke(name string, payload []byte) error {
 			Detail:  invoker.Detail,
 			Invoker: invoker,
 		}
-		return singleton.HandleRequest(context.Background(), records)
+		return singleton.HandleRequest(context.Background(), event)
 	default:
 		return fmt.Errorf("unknown functions for local invoke: %s", name)
 	}

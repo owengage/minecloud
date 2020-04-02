@@ -19,7 +19,7 @@ func NewMinecloudAWS(sess *session.Session, detail *awsdetail.Detail, localLambd
 			Detail: detail,
 		}
 	} else {
-		invoker = &functions.LambdaInvoker{
+		invoker = &awsdetail.LambdaInvoker{
 			LS: lambda.New(sess),
 		}
 	}
@@ -46,20 +46,7 @@ func (a *minecloudAWS) Up(world minecloud.World) error {
 		return err
 	}
 
-	records := functions.Records{
-		Records: []functions.Record{
-			functions.Record{
-				Body: string(eventPayload),
-			},
-		},
-	}
-
-	payload, err := json.Marshal(records)
-	if err != nil {
-		return err
-	}
-
-	return a.invoker.Invoke("MinecloudSingleton", payload)
+	return a.invoker.Invoke("MinecloudSingleton", eventPayload)
 }
 
 func (a *minecloudAWS) Down(world minecloud.World) error {
@@ -73,18 +60,5 @@ func (a *minecloudAWS) Down(world minecloud.World) error {
 		return err
 	}
 
-	records := functions.Records{
-		Records: []functions.Record{
-			functions.Record{
-				Body: string(eventPayload),
-			},
-		},
-	}
-
-	payload, err := json.Marshal(records)
-	if err != nil {
-		return err
-	}
-
-	return a.invoker.Invoke("MinecloudSingleton", payload)
+	return a.invoker.Invoke("MinecloudSingleton", eventPayload)
 }

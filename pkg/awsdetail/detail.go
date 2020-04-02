@@ -18,7 +18,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// NewDetail makes a new AWS helper object
+// NewDetail makes detail.new AWS helper object
 func NewDetail(sess *session.Session, config Config) *Detail {
 	if config.SSHDefaultNewKeyBehaviour == SSHNewKeyUnspecified {
 		config.SSHDefaultNewKeyBehaviour = SSHNewKeyReject
@@ -44,14 +44,21 @@ type Detail struct {
 	account *string
 }
 
+// SSHNewKeyOpt indicates how to treat unknown hosts with SSH.
 type SSHNewKeyOpt int
 
 const (
+	// SSHNewKeyUnspecified default value placeholder.
 	SSHNewKeyUnspecified SSHNewKeyOpt = iota
+
+	// SSHNewKeyReject reject any unknown key.
 	SSHNewKeyReject
+
+	// SSHNewKeyAccept accept detail. unknown key. Acceptable for first-contact only.
 	SSHNewKeyAccept
 )
 
+// Config for AWS Detail.
 type Config struct {
 	SSHPrivateKey             []byte
 	SSHPrivateKeyFile         string
@@ -59,6 +66,7 @@ type Config struct {
 	SSHDefaultNewKeyBehaviour SSHNewKeyOpt
 }
 
+// RunOpts options when running commands tunnelling through SSH.
 type RunOpts struct {
 	Stdout          io.Writer
 	Stderr          io.Writer
@@ -66,62 +74,62 @@ type RunOpts struct {
 }
 
 // RunOn runs the given script on the given instance.
-func (a *Detail) RunOn(instanceID, script string, opts RunOpts) error {
+func (detail *Detail) RunOn(instanceID, script string, opts RunOpts) error {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
 	}
 	if opts.Stderr == nil {
 		opts.Stderr = os.Stderr
 	}
-	return a.runOn(instanceID, script, opts)
+	return detail.runOn(instanceID, script, opts)
 }
 
 // OutputOn returns stdout of running the given script
-func (a *Detail) OutputOn(instanceID, script string, opts RunOpts) ([]byte, []byte, error) {
+func (detail *Detail) OutputOn(instanceID, script string, opts RunOpts) ([]byte, []byte, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	opts.Stdout = &stdout
 	opts.Stderr = &stderr
 
-	err := a.runOn(instanceID, script, opts)
+	err := detail.runOn(instanceID, script, opts)
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
 // Account is the AWS account being used to make requests.
-func (a *Detail) Account() (string, error) {
-	if a.account == nil {
-		STS := sts.New(a.Session)
+func (detail *Detail) Account() (string, error) {
+	if detail.account == nil {
+		STS := sts.New(detail.Session)
 		identity, err := STS.GetCallerIdentity(nil)
 		if err != nil {
 			return "", err
 		}
 
-		a.account = identity.Account
+		detail.account = identity.Account
 	}
 
-	return *a.account, nil
+	return *detail.account, nil
 }
 
 // Region returns the region we are running commands in.
-func (a *Detail) Region() string {
-	return *a.Session.Config.Region
+func (detail *Detail) Region() string {
+	return *detail.Session.Config.Region
 }
 
 // runOn runs the given script on the given instance.
-func (a *Detail) runOn(instanceID, script string, opts RunOpts) error {
+func (detail *Detail) runOn(instanceID, script string, opts RunOpts) error {
 	// Need to get the public IP.
-	description, err := a.EC2.DescribeInstances(descInput(instanceID))
+	description, err := detail.EC2.DescribeInstances(descInput(instanceID))
 	if err != nil {
 		return err
 	}
 
-	err = ensureKeyBytes(a)
+	err = ensureKeyBytes(detail)
 	if err != nil {
 		return err
 	}
 
 	if opts.NewKeyBehaviour == SSHNewKeyUnspecified {
-		opts.NewKeyBehaviour = a.Config.SSHDefaultNewKeyBehaviour
+		opts.NewKeyBehaviour = detail.Config.SSHDefaultNewKeyBehaviour
 	}
 
 	if len(description.Reservations) != 1 {
@@ -142,12 +150,12 @@ func (a *Detail) runOn(instanceID, script string, opts RunOpts) error {
 
 	ip := *ipPtr
 
-	signer, err := ssh.ParsePrivateKey(a.Config.SSHPrivateKey)
+	signer, err := ssh.ParsePrivateKey(detail.Config.SSHPrivateKey)
 	if err != nil {
 		return fmt.Errorf("private: %w", err)
 	}
 
-	hostCallback := a.tofuCallback(opts)
+	hostCallback := detail.tofuCallback(opts)
 
 	config := &ssh.ClientConfig{
 		User:            "ec2-user",
@@ -178,6 +186,7 @@ func (a *Detail) runOn(instanceID, script string, opts RunOpts) error {
 	return nil
 }
 
+// tofuCallback creates detail.new host callback for SSH that can trust on first use *iff* accept new key is true.
 func (detail *Detail) tofuCallback(opts RunOpts) func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 	knownHostsFile := detail.Config.SSHKnownHostsPath
 
@@ -193,7 +202,7 @@ func (detail *Detail) tofuCallback(opts RunOpts) func(hostname string, remote ne
 			return nil
 		}
 
-		// If not in hosts but we accept a new key, add the key to the hosts file.
+		// If not in hosts but we accept detail.new key, add the key to the hosts file.
 		if opts.NewKeyBehaviour == SSHNewKeyAccept {
 			detail.Logger.Info("adding new host to known_hosts")
 
