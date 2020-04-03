@@ -65,8 +65,12 @@ func GetRunning(svc *ec2.EC2) ([]MCServer, error) {
 	return servers, nil
 }
 
-func storageKeyForName(name string) string {
-	return "servers/" + name + ".tar"
+func s3ServerPrefix(name string) string {
+	return "servers/" + name
+}
+
+func s3WorldKey(name string) string {
+	return "worlds/" + name + ".tar"
 }
 
 // FindStored returns the file name for a servers storage.
@@ -74,7 +78,7 @@ func storageKeyForName(name string) string {
 func FindStored(s3Service *s3.S3, name string) error {
 	objects, err := s3Service.ListObjectsV2(&s3.ListObjectsV2Input{
 		Bucket: aws.String(s3BucketName),
-		Prefix: aws.String("servers/" + name),
+		Prefix: aws.String(s3WorldKey(name)),
 	})
 
 	if err != nil {
@@ -82,7 +86,7 @@ func FindStored(s3Service *s3.S3, name string) error {
 	}
 
 	for _, object := range objects.Contents {
-		if *object.Key == storageKeyForName(name) {
+		if *object.Key == s3WorldKey(name) {
 			return nil // found
 		}
 	}
@@ -187,6 +191,12 @@ func StoreRunning(detail *Detail, world string) error {
 		return fmt.Errorf("failed to upload world (%s): %w", server.Name, err)
 	}
 
+	err = UnclaimWorld(detail, world)
+	if err != nil {
+		// This shouldn't be a fatal error, it but is important.
+		detail.Logger.Errorf("after successful world upload, failed to unclaim: %v", err)
+	}
+
 	return TerminateInstance(detail, server.InstanceID)
 }
 
@@ -211,17 +221,14 @@ func BootstrapInstance(services *Detail, instanceID string) error {
 func DownloadWorld(services *Detail, instanceID, name string) error {
 	services.Logger.Info("downloading world")
 
-	s3ObjectPath := "s3://" + s3BucketName + "/" + storageKeyForName(name)
+	opts := DownloadScriptOpts{
+		S3WorldKey:     s3WorldKey(name),
+		S3ServerPrefix: s3ServerPrefix(name),
+	}
 
-	err := services.RunOn(instanceID, fmt.Sprintf(`
-		set -x
-		aws s3 cp %s server.tar
-		tar xf server.tar
-		rm server.tar
-		sudo mv server/ /
-	`, s3ObjectPath), RunOpts{})
+	script := DownloadScript(opts)
 
-	return err
+	return services.RunOn(instanceID, script, RunOpts{})
 }
 
 // Status gets the status of an instance's server wrapper.
@@ -239,8 +246,6 @@ func Status(services *Detail, instanceID string) (serverwrapper.StatusResponse, 
 
 // UploadWorld uploads a world from an EC2 instance to S3.
 func UploadWorld(services *Detail, instanceID, name string) error {
-	s3ObjectPath := "s3://" + s3BucketName + "/" + storageKeyForName(name)
-
 	// TODO: Verify the world name somehow before upload to prevent accidental overwrite?
 	resp, err := Status(services, instanceID)
 	if err != nil {
@@ -251,12 +256,13 @@ func UploadWorld(services *Detail, instanceID, name string) error {
 		return fmt.Errorf("server still running for world '%s', must be stopped to upload world", name)
 	}
 
-	err = services.RunOn(instanceID, fmt.Sprintf(`
-		set -x
-		tar cf server.tar /server
-		aws s3 cp server.tar %s
-		rm server.tar
-	`, s3ObjectPath), RunOpts{})
+	opts := UploadScriptOpts{
+		S3WorldKey:     s3WorldKey(name),
+		S3ServerPrefix: s3ServerPrefix(name),
+	}
+
+	script := UploadScript(opts)
+	err = services.RunOn(instanceID, script, RunOpts{})
 
 	return err
 }
@@ -264,31 +270,17 @@ func UploadWorld(services *Detail, instanceID, name string) error {
 // StartServerWrapper starts the server wrapper on the EC2 instance that the
 // ssh client is connected to. Expects it isn't already running.
 func StartServerWrapper(services *Detail, instanceID string) error {
-	region := services.Region()
 	account, err := services.Account()
 	if err != nil {
 		return err
 	}
 
-	err = services.RunOn(instanceID, fmt.Sprintf(`
-		set -x
-		# Log in to docker
-		# sed hack to remove an invalid argument, god knows why it's there.
-		$(aws ecr get-login --region %s | sed 's/-e none//g')
-		
-		docker pull %s.dkr.ecr.%s.amazonaws.com/minecloud/server-wrapper:latest
+	opts := StartWrapperScriptOpts{
+		AccountID: account,
+		Region:    services.Region(),
+	}
 
-		docker run -d \
-			--rm \
-			-p 8080:8080 \
-			-p 25565:25565 \
-			--name serverwrapper \
-			--volume /server:/server \
-			%s.dkr.ecr.%s.amazonaws.com/minecloud/server-wrapper:latest \
-			-address 0.0.0.0:8080
-	`, region, account, region, account, region), RunOpts{})
-
-	return err
+	return services.RunOn(instanceID, StartWrapperScript(opts), RunOpts{})
 }
 
 // StopServerWrapper stops the server wrapper

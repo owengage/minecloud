@@ -59,10 +59,7 @@ func (env *Singleton) HandleUp(ctx context.Context, event Event) error {
 }
 
 func (env *Singleton) HandleDown(ctx context.Context, event Event) error {
-	err := awsdetail.UnclaimWorld(env.Detail, *event.World)
-	if err != nil {
-		return err
-	}
+	// TODO: Add an "isClaimed" type check.
 
 	b, err := json.Marshal(event)
 	if err != nil {
