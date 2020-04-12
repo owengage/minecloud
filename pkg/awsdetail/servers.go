@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
+	"github.com/owengage/minecloud/pkg/minecloud"
 	"github.com/owengage/minecloud/pkg/serverwrapper"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
@@ -71,6 +74,46 @@ func s3ServerPrefix(name string) string {
 
 func s3WorldKey(name string) string {
 	return "worlds/" + name + ".tar"
+}
+
+// UpdateDNS of a world so that it can be accessed via domain name.
+func UpdateDNS(detail *Detail, ip string, world minecloud.World) error {
+	ipstruct := net.ParseIP(ip)
+	if ipstruct == nil {
+		return fmt.Errorf("update-dns: invalid IP given: %s", ip)
+	}
+
+	// TODO sanity check the name.
+	subdomain := string(world) + ".mineod.com."
+
+	r53 := route53.New(detail.Session)
+	_, err := r53.ChangeResourceRecordSets(&route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: aws.String("Z00702652FBUWE9Z9MIKW"), // TODO configurable.
+		ChangeBatch: &route53.ChangeBatch{
+			Changes: []*route53.Change{
+				{
+					Action: aws.String(route53.ChangeActionUpsert),
+					ResourceRecordSet: &route53.ResourceRecordSet{
+						Name: aws.String(subdomain),
+						Type: aws.String(route53.RRTypeA),
+						TTL:  aws.Int64(60),
+						ResourceRecords: []*route53.ResourceRecord{
+							{
+								Value: aws.String(ip),
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	detail.Logger.Infof("DNS updated: %s", subdomain)
+	return nil
 }
 
 // FindStored returns the file name for a servers storage.
@@ -252,19 +295,25 @@ func UploadWorld(services *Detail, instanceID, name string) error {
 		return err
 	}
 
-	if resp.Status != serverwrapper.StatusStopped {
+	if resp.Status == serverwrapper.StatusStopped {
+		opts := UploadScriptOpts{
+			S3WorldKey:     s3WorldKey(name),
+			S3ServerPrefix: s3ServerPrefix(name),
+		}
+
+		script := UploadScript(opts)
+		err = services.RunOn(instanceID, script, RunOpts{})
+
+		return err
+	} else if resp.Status == serverwrapper.StatusRunning {
+		// Stop server saving
+		// Force save all
+		// Upload world and server files
+		// Start server saving again
 		return fmt.Errorf("server still running for world '%s', must be stopped to upload world", name)
 	}
 
-	opts := UploadScriptOpts{
-		S3WorldKey:     s3WorldKey(name),
-		S3ServerPrefix: s3ServerPrefix(name),
-	}
-
-	script := UploadScript(opts)
-	err = services.RunOn(instanceID, script, RunOpts{})
-
-	return err
+	return fmt.Errorf("upload world: server in unknown state (%v), refusing to act", resp.Status)
 }
 
 // StartServerWrapper starts the server wrapper on the EC2 instance that the
@@ -400,6 +449,16 @@ func WaitForSSH(services *Detail, instanceID string, acceptNewKey bool) error {
 func SetupInstance(services *Detail, instanceID, name string) error {
 
 	err := WaitForSSH(services, instanceID, true)
+	if err != nil {
+		return err
+	}
+
+	ip, err := services.IP(instanceID)
+	if err != nil {
+		return err
+	}
+
+	err = UpdateDNS(services, ip, minecloud.World(name))
 	if err != nil {
 		return err
 	}

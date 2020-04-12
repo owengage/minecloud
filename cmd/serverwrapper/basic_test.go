@@ -1,59 +1,27 @@
 package main
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
+	"os/exec"
 )
 
-func TestExtractUniverse(t *testing.T) {
-	dir := "/a/b/c/d"
-	uni, world, err := getUniverseAndWorld(dir)
-	assert.Equal(t, "/a/b/c", uni)
-	assert.Equal(t, "d", world)
-	assert.NoError(t, err)
+type CmdChan interface {
+	CombinedOutput() <-chan string
+	Input() chan<- string
+	Wait() error
 }
 
-func TestExtractUniverseWithRelative(t *testing.T) {
-	dir := "a/b/c/d"
-	uni, world, err := getUniverseAndWorld(dir)
-	assert.Equal(t, "a/b/c", uni)
-	assert.Equal(t, "d", world)
-	assert.NoError(t, err)
+type cmdChan struct {
+	inner *exec.Cmd
 }
 
-func TestExtractUniverseWithRoot(t *testing.T) {
-	dir := "/"
-	_, _, err := getUniverseAndWorld(dir)
-	assert.Error(t, err)
+func (cmd *cmdChan) Wait() {
+
 }
 
-func TestExtractUniverseWithWorldAtRoot(t *testing.T) {
-	dir := "/world"
-	uni, world, err := getUniverseAndWorld(dir)
-	assert.Equal(t, "/", uni)
-	assert.Equal(t, "world", world)
-	assert.NoError(t, err)
-}
+// func TestThing(t *testing.T) {
+// 	innerCmd := exec.Command("ls")
+// 	cmd := cmdChan{innerCmd}
+// 	require.NoError(t, innerCmd.Start())
 
-func TestExtractUniverseWithNothingErrors(t *testing.T) {
-	dir := ""
-	_, _, err := getUniverseAndWorld(dir)
-	assert.Error(t, err)
-}
-
-func TestExtractUniverseWithEndingSlashIgnores(t *testing.T) {
-	dir := "/world/"
-	uni, world, err := getUniverseAndWorld(dir)
-	assert.Equal(t, "/", uni)
-	assert.Equal(t, "world", world)
-	assert.NoError(t, err)
-}
-
-func TestExtractUniverseRelativeWithSlashAtEnd(t *testing.T) {
-	dir := "world/"
-	uni, world, err := getUniverseAndWorld(dir)
-	assert.Equal(t, ".", uni)
-	assert.Equal(t, "world", world)
-	assert.NoError(t, err)
-}
+// 	require.NoError(t, cmd.Wait())
+// }

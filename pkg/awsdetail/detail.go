@@ -115,15 +115,33 @@ func (detail *Detail) Region() string {
 	return *detail.Session.Config.Region
 }
 
-// runOn runs the given script on the given instance.
-func (detail *Detail) runOn(instanceID, script string, opts RunOpts) error {
-	// Need to get the public IP.
+// IP gets the IP of an instance.
+func (detail *Detail) IP(instanceID string) (string, error) {
 	description, err := detail.EC2.DescribeInstances(descInput(instanceID))
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	err = ensureKeyBytes(detail)
+	if len(description.Reservations) != 1 {
+		return "", fmt.Errorf("instance not found (%d reservations)", len(description.Reservations))
+	}
+
+	if len(description.Reservations[0].Instances) != 1 {
+		return "", fmt.Errorf("instance not found (%d instances in reservation)", len(description.Reservations[0].Instances))
+	}
+
+	ipPtr := description.Reservations[0].Instances[0].PublicIpAddress
+
+	if ipPtr == nil {
+		return "", errors.New("instance has no public IP (terminated?)")
+	}
+
+	return *ipPtr, nil
+}
+
+// runOn runs the given script on the given instance.
+func (detail *Detail) runOn(instanceID, script string, opts RunOpts) error {
+	err := ensureKeyBytes(detail)
 	if err != nil {
 		return err
 	}
@@ -132,23 +150,11 @@ func (detail *Detail) runOn(instanceID, script string, opts RunOpts) error {
 		opts.NewKeyBehaviour = detail.Config.SSHDefaultNewKeyBehaviour
 	}
 
-	if len(description.Reservations) != 1 {
-		return fmt.Errorf("instance not found (%d reservations)",
-			len(description.Reservations))
-	}
+	ip, err := detail.IP(instanceID)
 
-	if len(description.Reservations[0].Instances) != 1 {
-		return fmt.Errorf("instance not found (%d instances in reservation)",
-			len(description.Reservations[0].Instances))
-	}
-
-	ipPtr := description.Reservations[0].Instances[0].PublicIpAddress
-
-	if ipPtr == nil {
+	if err != nil {
 		return errors.New("instance has no public IP (terminated?)")
 	}
-
-	ip := *ipPtr
 
 	signer, err := ssh.ParsePrivateKey(detail.Config.SSHPrivateKey)
 	if err != nil {

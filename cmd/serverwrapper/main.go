@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
+	"os"
+	"os/signal"
 
 	"github.com/owengage/minecloud/pkg/serverwrapper"
 )
@@ -37,6 +39,7 @@ func main() {
 	serverJar := flag.String("jar", "", "Minecraft server JAR file")
 	worldDir := flag.String("world-dir", "", "Directory containing world files")
 	serverDir := flag.String("server-dir", "", "Directory containing server files")
+	snapshotPath := flag.String("snapshot-path", "", "Path to write world snapshot to")
 	flag.Parse()
 
 	wrapper := NewWrapper(WrapperOpts{
@@ -45,35 +48,11 @@ func main() {
 		ServerDir: *serverDir,
 	})
 
-	go func() {
-		err := wrapper.Run()
-		if err != nil {
-			panic(err)
-		}
-	}()
-
-	go func() {
-		for message := range wrapper.Output() {
-			fmt.Println(message)
-		}
-	}()
-
-	http.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-
-		err := wrapper.RequestStop()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-	})
+	ctx, cancel := context.WithCancel(context.Background())
+	go wrapper.Run(ctx)
 
 	http.HandleFunc("/command", func(w http.ResponseWriter, r *http.Request) {
+
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -90,6 +69,7 @@ func main() {
 
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(MaybeErrResponse{Error: err})
+
 	})
 
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
@@ -105,5 +85,58 @@ func main() {
 		}
 	})
 
-	log.Fatal(http.ListenAndServe(*address, nil))
+	http.HandleFunc("/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		result := make(chan error)
+		saveTask := &SnapshotTask{
+			wrapper:      wrapper,
+			snapshotPath: *snapshotPath,
+			worldDir:     *worldDir,
+			result:       result,
+		}
+
+		wrapper.Execute(saveTask)
+		err := <-result
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(MaybeErrResponse{Error: err})
+	})
+
+	http.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		result := make(chan error)
+		stopTask := &StopTask{
+			wrapper: wrapper,
+			result:  result,
+		}
+
+		wrapper.Execute(stopTask)
+		err := <-result
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(MaybeErrResponse{Error: err})
+	})
+
+	server := &http.Server{Addr: *address, Handler: nil}
+	go server.ListenAndServe()
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
+	// Block until a signal is received.
+	fmt.Println("Waiting for signal")
+	s := <-c
+	fmt.Println("Got signal:", s)
+
+	cancel()
+	server.Close()
+	wrapper.Stop()
 }

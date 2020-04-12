@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/owengage/minecloud/pkg/serverwrapper"
@@ -25,6 +27,8 @@ type Wrapper struct {
 
 	finishedStarting bool
 	stopRequested    bool
+
+	tasks chan Task
 }
 
 // WrapperOpts are the options for creating a server.
@@ -51,18 +55,22 @@ func NewWrapper(opts WrapperOpts) *Wrapper {
 		serverDir:        opts.ServerDir,
 		worldDir:         opts.WorldDir,
 		finishedStarting: false,
+		tasks:            make(chan Task),
 	}
 }
 
-// Output from server console.
-func (wrapper *Wrapper) Output() <-chan string {
-	return wrapper.output
+func (wrapper *Wrapper) Execute(task Task) {
+	wrapper.tasks <- task
 }
 
 // RequestStop sends a request for the server to stop.
 func (wrapper *Wrapper) RequestStop() error {
 	wrapper.input <- "/stop\n"
 	return <-wrapper.inputResponse
+}
+
+func (wrapper *Wrapper) Save() error {
+	return nil
 }
 
 // Send command to server. New line automatically appended. eg Send("/stop")
@@ -86,8 +94,75 @@ func (wrapper *Wrapper) Status() serverwrapper.Status {
 	return serverwrapper.StatusStarting
 }
 
-// Run the server. Blocks until server is closed. Use `go server.Run()`.
-func (wrapper *Wrapper) Run() (err error) {
+func (wrapper *Wrapper) Stop() {
+	close(wrapper.done)
+}
+
+func (wrapper *Wrapper) Run(ctx context.Context) {
+	var currentTask Task = &WaitForStartedTask{wrapper}
+	var tasks chan Task
+
+	go func() {
+		err := wrapper.runServer(ctx)
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	for {
+		select {
+		case line := <-wrapper.output:
+			claimedMsg := "NoTask"
+			if currentTask != nil {
+				claimedMsg = getTaskName(currentTask)
+				if currentTask.OnOutput(line) == TaskDone {
+					currentTask = nil
+					tasks = wrapper.tasks
+				}
+			}
+			fmt.Printf("%s %s\n", claimedMsg, line)
+		case task := <-tasks:
+			if task.Init() == TaskContinue {
+				currentTask = task
+				tasks = nil
+			}
+		case <-wrapper.done:
+			if currentTask == nil {
+				return
+			}
+
+			if t, ok := currentTask.(TaskTerminatable); ok {
+				t.OnTerminate()
+			}
+			return
+		}
+	}
+}
+
+func getTaskName(task Task) string {
+	t := reflect.TypeOf(task)
+	if t.Kind() == reflect.Ptr {
+		return t.Elem().Name()
+	}
+	return t.Name()
+}
+
+type WaitForStartedTask struct {
+	wrapper *Wrapper
+}
+
+func (task *WaitForStartedTask) Init() TaskStep { return TaskContinue }
+func (task *WaitForStartedTask) OnOutput(line string) TaskStep {
+	if strings.Contains(line, "[Server thread/INFO]: Done") {
+		task.wrapper.finishedStarting = true
+		return TaskDone
+	}
+	return TaskContinue
+}
+
+// runServer. Blocks until server is closed. Use `go server.Run()`.
+func (wrapper *Wrapper) runServer(ctx context.Context) (err error) {
+
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("wrapper run: %w", err)
@@ -111,7 +186,7 @@ func (wrapper *Wrapper) Run() (err error) {
 		return
 	}
 
-	cmd := exec.Command("java",
+	cmd := exec.CommandContext(ctx, "java",
 		"-jar", jar,
 		"--universe", universe,
 		"--world", world)
@@ -138,10 +213,6 @@ func (wrapper *Wrapper) Run() (err error) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			wrapper.output <- line
-
-			if strings.Contains(line, "[Wrapper thread/INFO]: Done") {
-				wrapper.finishedStarting = true
-			}
 		}
 		if scanner.Err() != nil {
 			log.Println(scanner.Err())
@@ -153,7 +224,6 @@ func (wrapper *Wrapper) Run() (err error) {
 
 	go func() {
 		for command := range wrapper.input {
-			fmt.Printf("Sending: %s\n", command)
 			_, err := in.Write([]byte(command))
 			wrapper.inputResponse <- err // might be nil.
 		}

@@ -32,19 +32,21 @@ func (cli *CLI) Exec(args []string) error {
 		"down": cli.down,
 
 		// plumbing commands
-		"ls":        cli.ls,
-		"reserve":   cli.remoteReserve,
-		"bootstrap": cli.remoteBootstrap,
-		"download":  cli.remoteDownloadWorld,
-		"start":     cli.remoteStartServer,
-		"status":    cli.remoteStatus,
-		"logs":      cli.remoteLogs,
-		"upload":    cli.remoteUploadWorld,
-		"stop":      cli.remoteStopServer,
-		"kill":      cli.remoteRmServer,
-		"terminate": cli.terminate,
-		"claim":     cli.debugClaim,
-		"unclaim":   cli.debugUnclaim,
+		"ls":         cli.ls,
+		"reserve":    cli.remoteReserve,
+		"bootstrap":  cli.remoteBootstrap,
+		"download":   cli.remoteDownloadWorld,
+		"start":      cli.remoteStartServer,
+		"status":     cli.remoteStatus,
+		"logs":       cli.remoteLogs,
+		"upload":     cli.remoteUploadWorld,
+		"stop":       cli.remoteStopServer,
+		"kill":       cli.remoteRmServer,
+		"terminate":  cli.terminate,
+		"claim":      cli.debugClaim,
+		"unclaim":    cli.debugUnclaim,
+		"update-dns": cli.updateDNS,
+		"save":       cli.save,
 		"aws-account": func(remainder []string) error {
 			account, err := cli.detail.Account()
 			if err == nil {
@@ -159,6 +161,22 @@ func (cli *CLI) debugUnclaim(args []string) error {
 	}
 
 	return nil
+}
+
+func (cli *CLI) updateDNS(args []string) error {
+	flags := NewSmartFlags(cli.detail, "update-dns").RequireWorld()
+	ip := flags.flags.String("ip", "", "IP address to point DNS record to")
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
+		return err
+	}
+
+	world := flags.World()
+
+	return awsdetail.UpdateDNS(cli.detail, *ip, minecloud.World(world))
+}
+
+func (cli *CLI) save(args []string) error {
+	return errors.New("not implemented")
 }
 
 func (cli *CLI) remoteDownloadWorld(args []string) error {
