@@ -47,6 +47,7 @@ func (cli *CLI) Exec(args []string) error {
 		"unclaim":    cli.debugUnclaim,
 		"update-dns": cli.updateDNS,
 		"save":       cli.save,
+		"backup":     cli.backup,
 		"aws-account": func(remainder []string) error {
 			account, err := cli.detail.Account()
 			if err == nil {
@@ -177,6 +178,15 @@ func (cli *CLI) updateDNS(args []string) error {
 
 func (cli *CLI) save(args []string) error {
 	return errors.New("not implemented")
+}
+
+func (cli *CLI) backup(args []string) error {
+	flags := NewSmartFlags(cli.detail, "backup").RequireWorld()
+	if err := flags.ParseValidate(cli.detail, args); err != nil {
+		return err
+	}
+
+	return awsdetail.BackupWorld(cli.detail, minecloud.World(flags.World()))
 }
 
 func (cli *CLI) remoteDownloadWorld(args []string) error {

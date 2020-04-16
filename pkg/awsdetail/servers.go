@@ -76,6 +76,10 @@ func s3WorldKey(name string) string {
 	return "worlds/" + name + ".tar"
 }
 
+func s3BackupKey(world minecloud.World, hash string) string {
+	return "backups/" + string(world) + "/" + hash + ".tar.gz"
+}
+
 // UpdateDNS of a world so that it can be accessed via domain name.
 func UpdateDNS(detail *Detail, ip string, world minecloud.World) error {
 	ipstruct := net.ParseIP(ip)
@@ -142,9 +146,10 @@ func ReserveInstance(services *Detail, name string) (string, error) {
 	services.Logger.Info("reserving EC2 instance")
 
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
-		MaxCount:     aws.Int64(1),
-		MinCount:     aws.Int64(1),
-		ImageId:      aws.String("ami-0cb790308f7591fa6"), // Normal Amazon Linux 2.
+		MaxCount: aws.Int64(1),
+		MinCount: aws.Int64(1),
+		//ImageId:      aws.String("ami-0cb790308f7591fa6"), // Normal Amazon Linux 2.
+		ImageId:      aws.String("ami-0525535fd2f7d23a5"), // Custom Minecloud image with docker installed.
 		InstanceType: aws.String("m5.large"),              // FIXME configurable
 		IamInstanceProfile: &ec2.IamInstanceProfileSpecification{
 			Name: aws.String("MinecraftServerRole"),
@@ -253,6 +258,7 @@ func BootstrapInstance(services *Detail, instanceID string) error {
 		set -x
 		sudo yum update -y;
 		sudo yum install -y docker;
+		sudo systemctl enable docker;
 		sudo service docker start;
 		sudo usermod -a -G docker ec2-user;
 	`, RunOpts{NewKeyBehaviour: SSHNewKeyAccept})
@@ -463,10 +469,11 @@ func SetupInstance(services *Detail, instanceID, name string) error {
 		return err
 	}
 
-	err = BootstrapInstance(services, instanceID)
-	if err != nil {
-		return err
-	}
+	// // Not required if running from Minecloud image.
+	// err = BootstrapInstance(services, instanceID)
+	// if err != nil {
+	// 	return err
+	// }
 
 	err = DownloadWorld(services, instanceID, name)
 	if err != nil {
