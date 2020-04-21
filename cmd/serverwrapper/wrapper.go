@@ -186,10 +186,48 @@ func (wrapper *Wrapper) runServer(ctx context.Context) (err error) {
 		return
 	}
 
-	cmd := exec.CommandContext(ctx, "java",
-		"-jar", jar,
+	availableMiB, err := serverwrapper.AvailableMiB()
+	if err != nil {
+		return
+	}
+
+	claimMiB := (availableMiB * 80) / 100
+
+	jvmOptions := []string{
+		// Mostly from https://aikar.co/2018/07/02/tuning-the-jvm-g1gc-garbage-collector-flags-for-minecraft/.
+		fmt.Sprintf("-Xms%dM", claimMiB),
+		fmt.Sprintf("-Xmx%dM", claimMiB),
+		"-XX:+UseG1GC",
+		"-XX:+ParallelRefProcEnabled",
+		"-XX:MaxGCPauseMillis=200",
+		"-XX:+UnlockExperimentalVMOptions",
+		"-XX:+DisableExplicitGC",
+		"-XX:-OmitStackTraceInFastThrow",
+		"-XX:+AlwaysPreTouch",
+		"-XX:G1NewSizePercent=30",
+		"-XX:G1MaxNewSizePercent=40",
+		"-XX:G1HeapRegionSize=8M",
+		"-XX:G1ReservePercent=20",
+		"-XX:G1HeapWastePercent=5",
+		"-XX:G1MixedGCCountTarget=8",
+		"-XX:InitiatingHeapOccupancyPercent=15",
+		"-XX:G1MixedGCLiveThresholdPercent=90",
+		"-XX:G1RSetUpdatingPauseTimePercent=5",
+		"-XX:SurvivorRatio=32",
+		"-XX:MaxTenuringThreshold=1"}
+
+	minecraftOptions := []string{"-jar", jar,
 		"--universe", universe,
-		"--world", world)
+		"--world", world,
+		"nogui"}
+
+	opts := []string{}
+	opts = append(opts, jvmOptions...)
+	opts = append(opts, minecraftOptions...)
+
+	log.Println("java command options:", opts)
+
+	cmd := exec.CommandContext(ctx, "java", opts...)
 
 	cmd.Dir = wrapper.serverDir
 
