@@ -10,15 +10,6 @@ func TestDownloadScript(t *testing.T) {
 	_ = DownloadScript(DownloadScriptOpts{
 		S3ServerPrefix: s3ServerPrefix("cliff"),
 		S3WorldKey:     s3WorldKey("cliff"),
-		ServerFiles: []string{
-			"banned-ips.json",
-			"banned-players.json",
-			"eula.txt",
-			"ops.json",
-			"server.properties",
-			"usercache.json",
-			"whitelist.json",
-		},
 	})
 }
 

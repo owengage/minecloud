@@ -10,15 +10,10 @@ type DownloadScriptOpts struct {
 	S3Bucket       string
 	S3WorldKey     string
 	S3ServerPrefix string
-	ServerFiles    []string
 }
 
 // DownloadScript returns a script for running on an EC2 instance to download the world and server.
 func DownloadScript(opts DownloadScriptOpts) string {
-	if opts.ServerFiles == nil {
-		opts.ServerFiles = defaultServerFiles
-	}
-
 	funcMap := template.FuncMap{
 		"toS3Path": toS3Path,
 	}
@@ -37,9 +32,7 @@ func DownloadScript(opts DownloadScriptOpts) string {
 	sudo chown $USER:$USER /server
 	cd /server
 
-	{{range .ServerFiles}}
-	aws s3 cp "{{toS3Path $.S3ServerPrefix}}/{{.}}" "{{.}}"
-	{{end}}
+	aws s3 cp --recursive "{{toS3Path $.S3ServerPrefix}}" "."
 	`
 
 	t := template.Must(template.New("download").Funcs(funcMap).Parse(templ))
@@ -59,10 +52,6 @@ type UploadScriptOpts struct {
 
 // UploadScript returns a script for running on an EC2 instance to upload the world and server.
 func UploadScript(opts UploadScriptOpts) string {
-	if opts.ServerFiles == nil {
-		opts.ServerFiles = defaultServerFiles
-	}
-
 	funcMap := template.FuncMap{
 		"toS3Path": toS3Path,
 	}
@@ -71,9 +60,9 @@ func UploadScript(opts UploadScriptOpts) string {
 	set -xe
 
 	pushd /server
-	{{range .ServerFiles}}
-	aws s3 cp "{{.}}" "{{toS3Path $.S3ServerPrefix}}/{{.}}"
-	{{end}}
+	# We use '|| true' here because some files are read-only and can't be uploaded thanks to fabric, which causes a warning
+	# It seems aws s3 cp doesn't check the filter before trying to stat a thing.
+	aws s3 cp  --recursive "." "{{toS3Path $.S3ServerPrefix}}/" --exclude "logs/*" --exclude ".fabric/*" --exclude ".mixin.out/*" || true
 	popd
 
 	# Upload the world
@@ -103,7 +92,7 @@ func StartWrapperScript(opts StartWrapperScriptOpts) string {
 	# sed hack to remove an invalid argument, god knows why it's there.
 	$(aws ecr get-login --region "{{.Region}}" | sed 's/-e none//g')
 	
-	docker pull "{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:latest"
+	docker pull "{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:fabric"
 
 	docker run -d \
 		--rm \
@@ -112,7 +101,7 @@ func StartWrapperScript(opts StartWrapperScriptOpts) string {
 		--name serverwrapper \
 		--volume /server:/server \
 		--volume /world:/world \
-		"{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:latest" \
+		"{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:fabric" \
 		-world-dir /world \
 		-server-dir /server
 	`
@@ -126,14 +115,4 @@ func StartWrapperScript(opts StartWrapperScriptOpts) string {
 
 func toS3Path(key string) string {
 	return "s3://" + s3BucketName + "/" + key
-}
-
-var defaultServerFiles = []string{
-	"banned-ips.json",
-	"banned-players.json",
-	"eula.txt",
-	"ops.json",
-	"server.properties",
-	"usercache.json",
-	"whitelist.json",
 }
