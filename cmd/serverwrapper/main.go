@@ -40,12 +40,14 @@ func main() {
 	worldDir := flag.String("world-dir", "", "Directory containing world files")
 	serverDir := flag.String("server-dir", "", "Directory containing server files")
 	snapshotPath := flag.String("snapshot-path", "", "Path to write world snapshot to")
+	jvmMem := flag.String("server-memory", "", "amount of memory to run server with, defaults to 80% of available. eg 10G")
 	flag.Parse()
 
 	wrapper := NewWrapper(WrapperOpts{
 		Jar:       *serverJar,
 		WorldDir:  *worldDir,
 		ServerDir: *serverDir,
+		JVMMemory: *jvmMem,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

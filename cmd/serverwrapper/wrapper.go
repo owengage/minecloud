@@ -24,6 +24,7 @@ type Wrapper struct {
 	jar       string
 	serverDir string
 	worldDir  string
+	jvmMemory string
 
 	finishedStarting bool
 	stopRequested    bool
@@ -36,6 +37,7 @@ type WrapperOpts struct {
 	Jar       string
 	WorldDir  string
 	ServerDir string
+	JVMMemory string // leave blank for auto. Same format as JVM option.
 }
 
 // NewWrapper prepares a new Minecraft server for launch.
@@ -54,6 +56,7 @@ func NewWrapper(opts WrapperOpts) *Wrapper {
 		jar:              opts.Jar,
 		serverDir:        opts.ServerDir,
 		worldDir:         opts.WorldDir,
+		jvmMemory:        opts.JVMMemory,
 		finishedStarting: false,
 		tasks:            make(chan Task),
 	}
@@ -186,17 +189,24 @@ func (wrapper *Wrapper) runServer(ctx context.Context) (err error) {
 		return
 	}
 
-	availableMiB, err := serverwrapper.AvailableMiB()
-	if err != nil {
-		return
-	}
+	jvmMemStr := ""
 
-	claimMiB := (availableMiB * 80) / 100
+	if wrapper.jvmMemory == "" {
+		var availableMiB int
+		availableMiB, err = serverwrapper.AvailableMiB()
+		if err != nil {
+			return
+		}
+		claimMiB := (availableMiB * 80) / 100
+		jvmMemStr = fmt.Sprintf("%dM", claimMiB)
+	} else {
+		jvmMemStr = wrapper.jvmMemory
+	}
 
 	jvmOptions := []string{
 		// Mostly from https://aikar.co/2018/07/02/tuning-the-jvm-g1gc-garbage-collector-flags-for-minecraft/.
-		fmt.Sprintf("-Xms%dM", claimMiB),
-		fmt.Sprintf("-Xmx%dM", claimMiB),
+		fmt.Sprintf("-Xms%s", jvmMemStr),
+		fmt.Sprintf("-Xmx%s", jvmMemStr),
 		"-XX:+UseG1GC",
 		"-XX:+ParallelRefProcEnabled",
 		"-XX:MaxGCPauseMillis=200",
