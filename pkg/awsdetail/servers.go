@@ -88,11 +88,11 @@ func UpdateDNS(detail *Detail, ip string, world minecloud.World) error {
 	}
 
 	// TODO sanity check the name.
-	subdomain := string(world) + ".mineod.com."
+	subdomain := string(world) + ".owengage.com."
 
 	r53 := route53.New(detail.Session)
 	_, err := r53.ChangeResourceRecordSets(&route53.ChangeResourceRecordSetsInput{
-		HostedZoneId: aws.String("Z00702652FBUWE9Z9MIKW"), // TODO configurable.
+		HostedZoneId: aws.String("Z0259601KLGA9PWJ5S0"), // TODO configurable.
 		ChangeBatch: &route53.ChangeBatch{
 			Changes: []*route53.Change{
 				{
@@ -148,17 +148,17 @@ func ReserveInstance(services *Detail, name string) (string, error) {
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
 		MaxCount: aws.Int64(1),
 		MinCount: aws.Int64(1),
-		//ImageId:      aws.String("ami-0cb790308f7591fa6"), // Normal Amazon Linux 2.
-		ImageId:      aws.String("ami-0525535fd2f7d23a5"), // Custom Minecloud image with docker installed.
-		InstanceType: aws.String("m5.large"),              // FIXME configurable
+		ImageId:  aws.String("ami-08b993f76f42c3e2f"), // Normal Amazon Linux 2.
+		// ImageId:      aws.String("ami-0525535fd2f7d23a5"), // Custom Minecloud image with docker installed.
+		InstanceType: aws.String("z1d.large"), // FIXME configurable
 		IamInstanceProfile: &ec2.IamInstanceProfileSpecification{
 			Name: aws.String("MinecraftServerRole"),
 		},
 		TagSpecifications: []*ec2.TagSpecification{
-			&ec2.TagSpecification{
+			{
 				ResourceType: aws.String("instance"),
 				Tags: []*ec2.Tag{
-					&ec2.Tag{
+					{
 						Key:   aws.String(serverTagKey),
 						Value: aws.String(name),
 					},
@@ -469,11 +469,11 @@ func SetupInstance(services *Detail, instanceID, name string) error {
 		return err
 	}
 
-	// // Not required if running from Minecloud image.
-	// err = BootstrapInstance(services, instanceID)
-	// if err != nil {
-	// 	return err
-	// }
+	// Not required if running from Minecloud image.
+	err = BootstrapInstance(services, instanceID)
+	if err != nil {
+		return err
+	}
 
 	err = DownloadWorld(services, instanceID, name)
 	if err != nil {

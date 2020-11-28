@@ -2,7 +2,7 @@
 
 ACCOUNT=$(aws sts get-caller-identity | jq -r .Account)
 REGION=$(aws configure get region)
-TAG=fabric
+TAG=latest
 
 aws ecr get-login-password --region $REGION | \
     docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/minecloud/server-wrapper

@@ -92,7 +92,7 @@ func StartWrapperScript(opts StartWrapperScriptOpts) string {
 	# sed hack to remove an invalid argument, god knows why it's there.
 	$(aws ecr get-login --region "{{.Region}}" | sed 's/-e none//g')
 	
-	docker pull "{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:fabric"
+	docker pull "{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:latest"
 
 	docker run -d \
 		--rm \
@@ -101,7 +101,7 @@ func StartWrapperScript(opts StartWrapperScriptOpts) string {
 		--name serverwrapper \
 		--volume /server:/server \
 		--volume /world:/world \
-		"{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:fabric" \
+		"{{.AccountID}}.dkr.ecr.{{.Region}}.amazonaws.com/minecloud/server-wrapper:latest" \
 		-world-dir /world \
 		-server-dir /server
 	`
