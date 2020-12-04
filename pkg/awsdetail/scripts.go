@@ -8,7 +8,7 @@ import (
 // DownloadScriptOpts options for DownloadScript.
 type DownloadScriptOpts struct {
 	S3Bucket       string
-	S3WorldKey     string
+	S3WorldPrefix  string
 	S3ServerPrefix string
 }
 
@@ -22,17 +22,12 @@ func DownloadScript(opts DownloadScriptOpts) string {
 	set -xe
 	
 	# Download the world
-	aws s3 cp "{{toS3Path .S3WorldKey}}" world.tar
-	tar xf world.tar
-	rm world.tar
-	sudo mv world/ /
-	
-	# Create server directory
-	sudo mkdir /server
-	sudo chown $USER:$USER /server
-	cd /server
+	aws s3 cp --recursive "{{toS3Path .S3WorldPrefix}}/" "world/"
+	sudo mv "world/" "/"
 
-	aws s3 cp --recursive "{{toS3Path $.S3ServerPrefix}}" "."
+	# Create server directory
+	aws s3 cp --recursive "{{toS3Path $.S3ServerPrefix}}/" "server/"
+	sudo mv "server/" "/"
 	`
 
 	t := template.Must(template.New("download").Funcs(funcMap).Parse(templ))
@@ -45,7 +40,7 @@ func DownloadScript(opts DownloadScriptOpts) string {
 // UploadScriptOpts options for UploadScript.
 type UploadScriptOpts struct {
 	S3Bucket       string
-	S3WorldKey     string
+	S3WorldPrefix  string
 	S3ServerPrefix string
 	ServerFiles    []string
 }
@@ -62,12 +57,12 @@ func UploadScript(opts UploadScriptOpts) string {
 	pushd /server
 	# We use '|| true' here because some files are read-only and can't be uploaded thanks to fabric, which causes a warning
 	# It seems aws s3 cp doesn't check the filter before trying to stat a thing.
-	aws s3 cp  --recursive "." "{{toS3Path $.S3ServerPrefix}}/" --exclude "logs/*" --exclude ".fabric/*" --exclude ".mixin.out/*" || true
+	aws s3 cp --recursive "." "{{toS3Path $.S3ServerPrefix}}/" --exclude "logs/*" --exclude ".fabric/*" --exclude ".mixin.out/*" || true
 	popd
 
 	# Upload the world
-	tar cf world.tar /world
-	aws s3 cp world.tar "{{toS3Path .S3WorldKey}}"
+	cd /world
+	aws s3 cp --recursive "." "{{toS3Path $.S3WorldPrefix}}/"
 	`
 
 	t := template.Must(template.New("upload").Funcs(funcMap).Parse(templ))

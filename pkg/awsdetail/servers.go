@@ -76,6 +76,10 @@ func s3WorldKey(name string) string {
 	return "worlds/" + name + ".tar"
 }
 
+func s3WorldPrefix(name string) string {
+	return "worlds/" + name
+}
+
 func s3BackupKey(world minecloud.World, hash string) string {
 	return "backups/" + string(world) + "/" + hash + ".tar.gz"
 }
@@ -124,18 +128,17 @@ func UpdateDNS(detail *Detail, ip string, world minecloud.World) error {
 // ErrServerNotFound if no file found. Errors if multiple match.
 func FindStored(s3Service *s3.S3, name string) error {
 	objects, err := s3Service.ListObjectsV2(&s3.ListObjectsV2Input{
-		Bucket: aws.String(s3BucketName),
-		Prefix: aws.String(s3WorldKey(name)),
+		Bucket:  aws.String(s3BucketName),
+		Prefix:  aws.String(s3WorldPrefix(name)),
+		MaxKeys: aws.Int64(1),
 	})
 
 	if err != nil {
 		return err
 	}
 
-	for _, object := range objects.Contents {
-		if *object.Key == s3WorldKey(name) {
-			return nil // found
-		}
+	if len(objects.Contents) == 1 {
+		return nil // found
 	}
 
 	return ErrServerNotFound
@@ -146,11 +149,10 @@ func ReserveInstance(services *Detail, name string) (string, error) {
 	services.Logger.Info("reserving EC2 instance")
 
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
-		MaxCount: aws.Int64(1),
-		MinCount: aws.Int64(1),
-		ImageId:  aws.String("ami-08b993f76f42c3e2f"), // Normal Amazon Linux 2.
-		// ImageId:      aws.String("ami-0525535fd2f7d23a5"), // Custom Minecloud image with docker installed.
-		InstanceType: aws.String("z1d.large"), // FIXME configurable
+		MaxCount:     aws.Int64(1),
+		MinCount:     aws.Int64(1),
+		ImageId:      aws.String("ami-08b993f76f42c3e2f"), // Normal Amazon Linux 2.
+		InstanceType: aws.String("z1d.large"),             // FIXME configurable
 		IamInstanceProfile: &ec2.IamInstanceProfileSpecification{
 			Name: aws.String("MinecraftServerRole"),
 		},
@@ -271,7 +273,7 @@ func DownloadWorld(services *Detail, instanceID, name string) error {
 	services.Logger.Info("downloading world")
 
 	opts := DownloadScriptOpts{
-		S3WorldKey:     s3WorldKey(name),
+		S3WorldPrefix:  s3WorldPrefix(name),
 		S3ServerPrefix: s3ServerPrefix(name),
 	}
 
@@ -303,7 +305,7 @@ func UploadWorld(services *Detail, instanceID, name string) error {
 
 	if resp.Status == serverwrapper.StatusStopped {
 		opts := UploadScriptOpts{
-			S3WorldKey:     s3WorldKey(name),
+			S3WorldPrefix:  s3WorldPrefix(name),
 			S3ServerPrefix: s3ServerPrefix(name),
 		}
 

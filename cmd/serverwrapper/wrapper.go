@@ -66,16 +66,6 @@ func (wrapper *Wrapper) Execute(task Task) {
 	wrapper.tasks <- task
 }
 
-// RequestStop sends a request for the server to stop.
-func (wrapper *Wrapper) RequestStop() error {
-	wrapper.input <- "/stop\n"
-	return <-wrapper.inputResponse
-}
-
-func (wrapper *Wrapper) Save() error {
-	return nil
-}
-
 // Send command to server. New line automatically appended. eg Send("/stop")
 func (wrapper *Wrapper) Send(cmd string) error {
 	wrapper.input <- cmd + "\n"

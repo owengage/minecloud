@@ -9,14 +9,14 @@ import (
 func TestDownloadScript(t *testing.T) {
 	_ = DownloadScript(DownloadScriptOpts{
 		S3ServerPrefix: s3ServerPrefix("cliff"),
-		S3WorldKey:     s3WorldKey("cliff"),
+		S3WorldPrefix:  s3WorldPrefix("cliff"),
 	})
 }
 
 func TestUploadScript(t *testing.T) {
 	_ = UploadScript(UploadScriptOpts{
 		S3ServerPrefix: s3ServerPrefix("cliff"),
-		S3WorldKey:     s3WorldKey("cliff"),
+		S3WorldPrefix:  s3WorldPrefix("cliff"),
 	})
 }
 
