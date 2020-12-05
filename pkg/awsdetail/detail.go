@@ -64,6 +64,8 @@ type Config struct {
 	SSHPrivateKeyFile         string
 	SSHKnownHostsPath         string
 	SSHDefaultNewKeyBehaviour SSHNewKeyOpt
+	HostedZoneID              string
+	HostedZoneSuffix          string // eg "example.com." note final dot.
 }
 
 // RunOpts options when running commands tunnelling through SSH.

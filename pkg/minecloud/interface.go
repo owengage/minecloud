@@ -5,6 +5,6 @@ type World string
 
 // Interface is the main interface to Minecloud services
 type Interface interface {
-	Up(world World) error
+	Up(world World, instanceType *string) error
 	Down(world World) error
 }

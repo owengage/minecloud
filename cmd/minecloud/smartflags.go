@@ -17,6 +17,7 @@ type SmartFlags struct {
 
 	world         *string
 	instanceID    *string
+	instanceType  *string
 	server        *awsdetail.MCServer
 	acceptNewHost *bool
 
@@ -55,6 +56,16 @@ func (f *SmartFlags) World() string {
 	return *f.world
 }
 
+func (f *SmartFlags) InstanceType() *string {
+	// Stupid flag package sets the flag to the default value
+	// rather than nil. Detect that and change it here to not polute
+	// that concept to the rest of the application.
+	if *f.instanceType != "" {
+		return f.instanceType
+	}
+	return nil
+}
+
 func (f *SmartFlags) RequireInstance() *SmartFlags {
 	if f.world == nil {
 		f.world = f.flags.String("world", "", "name of world")
@@ -70,6 +81,13 @@ func (f *SmartFlags) RequireWorld() *SmartFlags {
 		f.world = f.flags.String("world", "", "name of world")
 	}
 	f.worldRequired = true
+	return f
+}
+
+func (f *SmartFlags) RequireInstanceType() *SmartFlags {
+	if f.instanceType == nil {
+		f.instanceType = f.flags.String("instance-type", "", "type of EC2 instance to use")
+	}
 	return f
 }
 

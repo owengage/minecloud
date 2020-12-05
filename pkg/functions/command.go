@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/owengage/minecloud/pkg/awsdetail"
-	"github.com/owengage/minecloud/pkg/minecloud"
 )
 
 type Command struct {
@@ -26,11 +25,9 @@ func (env *Command) HandleRequest(ctx context.Context, event Event) error {
 
 	switch *event.Command {
 	case "up":
-		err = awsdetail.RunStored(env.Detail, *event.World)
+		err = awsdetail.RunStored(env.Detail, *event.World, event.InstanceType)
 	case "down":
 		err = awsdetail.StoreRunning(env.Detail, *event.World)
-	case "backup":
-		err = awsdetail.BackupWorld(env.Detail, minecloud.World(*event.World))
 	default:
 		err = errors.New("unknown command")
 	}

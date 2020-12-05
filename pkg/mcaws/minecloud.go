@@ -2,6 +2,7 @@ package mcaws
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -35,12 +36,14 @@ type minecloudAWS struct {
 	invoker functions.Invoker
 }
 
-func (a *minecloudAWS) Up(world minecloud.World) error {
+func (a *minecloudAWS) Up(world minecloud.World, instanceType *string) error {
 	event := functions.Event{
-		Command: aws.String("up"),
-		World:   aws.String(string(world)),
+		Command:      aws.String("up"),
+		World:        aws.String(string(world)),
+		InstanceType: instanceType,
 	}
 
+	fmt.Printf("event going in: %+v\n", event)
 	eventPayload, err := json.Marshal(event)
 	if err != nil {
 		return err

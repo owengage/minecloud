@@ -13,8 +13,9 @@ import (
 )
 
 type Event struct {
-	Command *string `json:"command"`
-	World   *string `json:"world"`
+	Command      *string `json:"command"`
+	World        *string `json:"world"`
+	InstanceType *string `json:"instanceType"`
 }
 
 type Singleton struct {

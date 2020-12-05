@@ -32,6 +32,7 @@ func (cli *CLI) Exec(args []string) error {
 		"down": cli.down,
 
 		// plumbing commands
+		"init":       cli.init,
 		"ls":         cli.ls,
 		"reserve":    cli.remoteReserve,
 		"bootstrap":  cli.remoteBootstrap,
@@ -47,7 +48,6 @@ func (cli *CLI) Exec(args []string) error {
 		"unclaim":    cli.debugUnclaim,
 		"update-dns": cli.updateDNS,
 		"save":       cli.save,
-		"backup":     cli.backup,
 		"aws-account": func(remainder []string) error {
 			account, err := cli.detail.Account()
 			if err == nil {
@@ -65,12 +65,12 @@ func (cli *CLI) Exec(args []string) error {
 }
 
 func (cli *CLI) up(args []string) error {
-	flags := NewSmartFlags(cli.detail, "up").RequireWorld()
+	flags := NewSmartFlags(cli.detail, "up").RequireWorld().RequireInstanceType()
 	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	return cli.mc.Up(minecloud.World(flags.World()))
+	return cli.mc.Up(minecloud.World(flags.World()), flags.InstanceType())
 }
 
 func (cli *CLI) down(args []string) error {
@@ -89,6 +89,10 @@ func (cli *CLI) terminate(args []string) error {
 	}
 
 	return awsdetail.TerminateInstance(cli.detail, flags.InstanceID())
+}
+
+func (cli *CLI) init(args []string) error {
+	return awsdetail.Init(cli.detail)
 }
 
 func (cli *CLI) ls(args []string) error {
@@ -120,12 +124,12 @@ func (cli *CLI) remoteBootstrap(args []string) error {
 }
 
 func (cli *CLI) remoteReserve(args []string) error {
-	flags := NewSmartFlags(cli.detail, "reserve").RequireWorld()
+	flags := NewSmartFlags(cli.detail, "reserve").RequireWorld().RequireInstanceType()
 	if err := flags.ParseValidate(cli.detail, args); err != nil {
 		return err
 	}
 
-	id, err := awsdetail.ReserveInstance(cli.detail, flags.World())
+	id, err := awsdetail.ReserveInstance(cli.detail, flags.World(), flags.InstanceType())
 	if err != nil {
 		return err
 	}
@@ -178,15 +182,6 @@ func (cli *CLI) updateDNS(args []string) error {
 
 func (cli *CLI) save(args []string) error {
 	return errors.New("not implemented")
-}
-
-func (cli *CLI) backup(args []string) error {
-	flags := NewSmartFlags(cli.detail, "backup").RequireWorld()
-	if err := flags.ParseValidate(cli.detail, args); err != nil {
-		return err
-	}
-
-	return awsdetail.BackupWorld(cli.detail, minecloud.World(flags.World()))
 }
 
 func (cli *CLI) remoteDownloadWorld(args []string) error {
@@ -275,6 +270,8 @@ func main() {
 	config := awsdetail.Config{
 		SSHPrivateKeyFile: path.Join(home, ".minecloud", "MinecraftServerKeyPair.pem"),
 		SSHKnownHostsPath: path.Join(home, ".ssh/known_hosts"),
+		HostedZoneID:      "Z0259601KLGA9PWJ5S0",
+		HostedZoneSuffix:  "owengage.com.",
 	}
 
 	detail := awsdetail.NewDetail(sess, config)

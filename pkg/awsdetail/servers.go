@@ -72,16 +72,8 @@ func s3ServerPrefix(name string) string {
 	return "servers/" + name
 }
 
-func s3WorldKey(name string) string {
-	return "worlds/" + name + ".tar"
-}
-
 func s3WorldPrefix(name string) string {
 	return "worlds/" + name
-}
-
-func s3BackupKey(world minecloud.World, hash string) string {
-	return "backups/" + string(world) + "/" + hash + ".tar.gz"
 }
 
 // UpdateDNS of a world so that it can be accessed via domain name.
@@ -92,11 +84,11 @@ func UpdateDNS(detail *Detail, ip string, world minecloud.World) error {
 	}
 
 	// TODO sanity check the name.
-	subdomain := string(world) + ".owengage.com."
+	subdomain := string(world) + "." + detail.Config.HostedZoneSuffix
 
 	r53 := route53.New(detail.Session)
 	_, err := r53.ChangeResourceRecordSets(&route53.ChangeResourceRecordSetsInput{
-		HostedZoneId: aws.String("Z0259601KLGA9PWJ5S0"), // TODO configurable.
+		HostedZoneId: aws.String(detail.Config.HostedZoneID),
 		ChangeBatch: &route53.ChangeBatch{
 			Changes: []*route53.Change{
 				{
@@ -145,16 +137,19 @@ func FindStored(s3Service *s3.S3, name string) error {
 }
 
 // ReserveInstance (run) an EC2 instance
-func ReserveInstance(services *Detail, name string) (string, error) {
+func ReserveInstance(services *Detail, name string, instanceType *string) (string, error) {
 	services.Logger.Info("reserving EC2 instance")
+	if instanceType == nil {
+		instanceType = aws.String("z1d.large")
+	}
 
 	reservation, err := services.EC2.RunInstances(&ec2.RunInstancesInput{
 		MaxCount:     aws.Int64(1),
 		MinCount:     aws.Int64(1),
 		ImageId:      aws.String("ami-08b993f76f42c3e2f"), // Normal Amazon Linux 2.
-		InstanceType: aws.String("z1d.large"),             // FIXME configurable
+		InstanceType: instanceType,
 		IamInstanceProfile: &ec2.IamInstanceProfileSpecification{
-			Name: aws.String("MinecraftServerRole"),
+			Name: aws.String("Minecloud_ServerRole"),
 		},
 		TagSpecifications: []*ec2.TagSpecification{
 			{
@@ -200,14 +195,14 @@ func TerminateInstance(services *Detail, instanceID string) error {
 }
 
 // RunStored runs a Minecraft server on EC2 from a world stored on S3.
-func RunStored(detail *Detail, world string) error {
+func RunStored(detail *Detail, world string, instanceType *string) error {
 
 	err := FindStored(detail.S3, world)
 	if err != nil {
 		return err
 	}
 
-	instanceID, err := ReserveInstance(detail, world)
+	instanceID, err := ReserveInstance(detail, world, instanceType)
 	if err != nil {
 		return err
 	}
@@ -257,13 +252,13 @@ func BootstrapInstance(services *Detail, instanceID string) error {
 	services.Logger.Info("bootstrapping instance")
 
 	err := services.RunOn(instanceID, `
-		set -x
-		sudo yum update -y;
-		sudo yum install -y docker;
-		sudo systemctl enable docker;
-		sudo service docker start;
-		sudo usermod -a -G docker ec2-user;
-	`, RunOpts{NewKeyBehaviour: SSHNewKeyAccept})
+        set -x
+        sudo yum update -y;
+        sudo yum install -y docker;
+        sudo systemctl enable docker;
+        sudo service docker start;
+        sudo usermod -a -G docker ec2-user;
+    `, RunOpts{NewKeyBehaviour: SSHNewKeyAccept})
 
 	return err
 }
