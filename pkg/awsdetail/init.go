@@ -6,7 +6,15 @@ import (
 )
 
 func Init(detail *Detail) error {
+	// TODO: Key pair
+	// TODO: Security groups
+	// TODO: Lambdas? Doesn't really fit into being able to do 'minecloud init'.
+	// Maybe terraform or cloudformation is a better approach afterall. CDK?
 	return InitServerRole(detail)
+}
+
+func Deinit(detail *Detail) error {
+	return DeinitServerRole(detail)
 }
 
 func InitServerRole(detail *Detail) error {
@@ -20,7 +28,6 @@ func InitServerRole(detail *Detail) error {
             "Version": "2012-10-17",
             "Statement": [
                 {
-                    "Sid": "abcdTrustPolicy",
                     "Effect": "Allow",
                     "Action": "sts:AssumeRole",
                     "Principal": {"Service": "ec2.amazonaws.com"}
@@ -88,6 +95,65 @@ func InitServerRole(detail *Detail) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func DeinitServerRole(detail *Detail) error {
+	iamServ := iam.New(detail.Session)
+
+	outPolicies, err := iamServ.ListPolicies(&iam.ListPoliciesInput{
+		Scope: aws.String(iam.PolicyScopeTypeLocal),
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, policy := range outPolicies.Policies {
+		if *policy.PolicyName == "Minecloud_ServerPolicy" {
+
+			detail.Logger.Info("detaching server policy")
+			_, err = iamServ.DetachRolePolicy(&iam.DetachRolePolicyInput{
+				PolicyArn: policy.Arn,
+				RoleName:  aws.String("Minecloud_ServerRole"),
+			})
+			if err != nil {
+				detail.Logger.Warn("error:", err)
+			}
+
+			detail.Logger.Info("destroying server policy")
+			_, err := iamServ.DeletePolicy(&iam.DeletePolicyInput{
+				PolicyArn: policy.Arn,
+			})
+			if err != nil {
+				detail.Logger.Warn("error:", err)
+			}
+
+			break
+		}
+	}
+
+	detail.Logger.Info("detaching instance role")
+	iamServ.RemoveRoleFromInstanceProfile(&iam.RemoveRoleFromInstanceProfileInput{
+		InstanceProfileName: aws.String("Minecloud_ServerRole"),
+		RoleName:            aws.String("Minecloud_ServerRole"),
+	})
+
+	detail.Logger.Info("destroying instance profile")
+	iamServ.DeleteInstanceProfile(&iam.DeleteInstanceProfileInput{
+		InstanceProfileName: aws.String("Minecloud_ServerRole"),
+	})
+	if err != nil {
+		detail.Logger.Warn("error:", err)
+	}
+
+	detail.Logger.Info("destroying role")
+	_, err = iamServ.DeleteRole(&iam.DeleteRoleInput{
+		RoleName: aws.String("Minecloud_ServerRole"),
+	})
+	if err != nil {
+		detail.Logger.Warn("error:", err)
 	}
 
 	return nil

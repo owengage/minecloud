@@ -33,6 +33,7 @@ func (cli *CLI) Exec(args []string) error {
 
 		// plumbing commands
 		"init":       cli.init,
+		"deinit":     cli.deinit,
 		"ls":         cli.ls,
 		"reserve":    cli.remoteReserve,
 		"bootstrap":  cli.remoteBootstrap,
@@ -93,6 +94,10 @@ func (cli *CLI) terminate(args []string) error {
 
 func (cli *CLI) init(args []string) error {
 	return awsdetail.Init(cli.detail)
+}
+
+func (cli *CLI) deinit(args []string) error {
+	return awsdetail.Deinit(cli.detail)
 }
 
 func (cli *CLI) ls(args []string) error {
