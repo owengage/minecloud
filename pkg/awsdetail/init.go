@@ -10,7 +10,11 @@ func Init(detail *Detail) error {
 	// TODO: Security groups
 	// TODO: Lambdas? Doesn't really fit into being able to do 'minecloud init'.
 	// Maybe terraform or cloudformation is a better approach afterall. CDK?
-	return InitServerRole(detail)
+	if err := InitServerRole(detail); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func Deinit(detail *Detail) error {

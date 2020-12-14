@@ -25,8 +25,11 @@ func main() {
 	f.Close()
 
 	config := awsdetail.Config{
-		SSHPrivateKey:     functions.GetSSHKey(awsSession),
-		SSHKnownHostsPath: "/tmp/known_hosts",
+		SSHPrivateKey:             functions.GetSSHKey(awsSession),
+		SSHKnownHostsPath:         "/tmp/known_hosts",
+		SSHDefaultNewKeyBehaviour: awsdetail.SSHNewKeyAccept,
+		HostedZoneID:              "Z0259601KLGA9PWJ5S0",
+		HostedZoneSuffix:          "owengage.com.",
 	}
 
 	detail = awsdetail.NewDetail(awsSession, config)

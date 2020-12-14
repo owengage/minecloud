@@ -159,6 +159,10 @@ func ReserveInstance(services *Detail, name string, instanceType *string) (strin
 						Key:   aws.String(serverTagKey),
 						Value: aws.String(name),
 					},
+					{
+						Key:   aws.String("Name"),
+						Value: aws.String(name),
+					},
 				},
 			},
 		},

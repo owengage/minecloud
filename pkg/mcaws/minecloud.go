@@ -11,6 +11,8 @@ import (
 	"github.com/owengage/minecloud/pkg/minecloud"
 )
 
+// NewMinecloudAWS creates an AWS backed Minecloud instance. This simply ivokes
+// the appropriate lambda functions, or local functions is localLambda is true.
 func NewMinecloudAWS(sess *session.Session, detail *awsdetail.Detail, localLambda bool) minecloud.Interface {
 	var invoker functions.Invoker
 

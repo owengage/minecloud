@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/owengage/minecloud/pkg/awsdetail"
 )
@@ -25,6 +26,16 @@ type Singleton struct {
 
 // HandleRequest from lambda
 func (env *Singleton) HandleRequest(ctx context.Context, event Event) error {
+
+	envEventPayload := os.Getenv("EVENT")
+
+	if envEventPayload != "" {
+		// We have a payload via environment variable. Use this as the event
+		// instead. Useful for when the lambda is triggered via something like
+		// CloudWatch events. We can create a lambda that shares the same
+		// function code, but changes this EVENT environment variable.
+		json.Unmarshal([]byte(envEventPayload), &event)
+	}
 
 	if event.Command == nil {
 		return fmt.Errorf("command not specified")
