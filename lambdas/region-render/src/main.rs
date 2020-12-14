@@ -77,17 +77,6 @@ async fn handler(e: S3Event, _: Context) -> Result<(), Error> {
             })
             .await
             .expect("could not put region image");
-
-        // DONE: Download region from S3.
-        // DONE: Parse region into image.
-        // TODO: Upload image to other bucket.
-        // TODO: Make upload to owengage.com bucket
-        // TODO: Set up proper execution role. Need one to be able to write to
-        // owengage.com.
-        // TODO: Base name on key that triggered it.
-        // TODO: Set up trigger.
-        // TODO: Test world upload.
-        // TODO: Make website be able to see it...
     }
 
     Ok(())
