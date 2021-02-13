@@ -478,20 +478,21 @@ dependencies = [
 
 [[package]]
 name = "fastanvil"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "bit_field",
  "byteorder",
  "fastnbt",
  "flate2",
  "image",
+ "log",
  "num_enum",
  "serde",
 ]
 
 [[package]]
 name = "fastnbt"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "byteorder",
  "serde",

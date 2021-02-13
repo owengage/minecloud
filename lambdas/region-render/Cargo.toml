@@ -15,7 +15,7 @@ aws_lambda_events = "0.3.1"
 rusoto_core = "0.45.0"
 rusoto_s3 = "0.45.0"
 tokio = "0.2"
-fastanvil = {version = "0.14", path = "../../../fastnbt/fastanvil" }
+fastanvil = {version = "0.15", path = "../../../fastnbt/fastanvil" }
 flate2 = "1.0"
 image = "0.23"
 tar = "0.4"
