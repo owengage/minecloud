@@ -39,7 +39,7 @@ func main() {
 	serverJar := flag.String("jar", "", "Minecraft server JAR file")
 	worldDir := flag.String("world-dir", "", "Directory containing world files")
 	serverDir := flag.String("server-dir", "", "Directory containing server files")
-	snapshotPath := flag.String("snapshot-path", "", "Path to write world snapshot to")
+	snapshotDir := flag.String("snapshot-dir", "", "Path to write world snapshot to")
 	jvmMem := flag.String("server-memory", "", "amount of memory to run server with, defaults to 80% of available. eg 10G")
 	flag.Parse()
 
@@ -95,10 +95,10 @@ func main() {
 
 		result := make(chan error)
 		saveTask := &SnapshotTask{
-			wrapper:      wrapper,
-			snapshotPath: *snapshotPath,
-			worldDir:     *worldDir,
-			result:       result,
+			wrapper:     wrapper,
+			snapshotDir: *snapshotDir,
+			worldDir:    *worldDir,
+			result:      result,
 		}
 
 		wrapper.Execute(saveTask)

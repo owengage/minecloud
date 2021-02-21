@@ -7,10 +7,10 @@ import (
 )
 
 type SnapshotTask struct {
-	wrapper      *Wrapper
-	worldDir     string
-	snapshotPath string
-	result       chan error
+	wrapper     *Wrapper
+	worldDir    string
+	snapshotDir string
+	result      chan error
 }
 
 func (t *SnapshotTask) Init() TaskStep {
@@ -31,10 +31,10 @@ func (t *SnapshotTask) Init() TaskStep {
 
 func (t *SnapshotTask) OnOutput(out string) TaskStep {
 	if strings.Contains(out, "[Server thread/INFO]: Saved the game") {
-		cmd := exec.Command("tar", "cf", t.snapshotPath, t.worldDir)
+		cmd := exec.Command("cp", "-r", t.worldDir, t.snapshotDir)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			t.result <- fmt.Errorf("tar failed: %w: %s", err, out)
+			t.result <- fmt.Errorf("cp failed: %w: %s", err, out)
 			return TaskDone
 		}
 
