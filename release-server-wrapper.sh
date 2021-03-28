@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ACCOUNT=$(aws sts get-caller-identity | jq -r .Account)
-REGION=$(aws configure get region)
+REGION=eu-west-2
 TAG=latest
 
 aws ecr get-login-password --region $REGION | \

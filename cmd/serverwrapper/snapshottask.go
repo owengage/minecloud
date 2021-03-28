@@ -31,7 +31,7 @@ func (t *SnapshotTask) Init() TaskStep {
 
 func (t *SnapshotTask) OnOutput(out string) TaskStep {
 	if strings.Contains(out, "[Server thread/INFO]: Saved the game") {
-		cmd := exec.Command("cp", "-r", t.worldDir, t.snapshotDir)
+		cmd := exec.Command("cp", "-r", "-a", t.worldDir, t.snapshotDir)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.result <- fmt.Errorf("cp failed: %w: %s", err, out)

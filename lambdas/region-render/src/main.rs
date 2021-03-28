@@ -1,29 +1,24 @@
-use lambda_runtime::{error::HandlerError, lambda, Context};
-use log::{self, info, LevelFilter};
+use lambda_runtime::{handler_fn, Context};
+use log::{self, LevelFilter};
 use rusoto_core::{ByteStream, Region};
 use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3};
 use tokio::io::AsyncReadExt;
-use tokio::runtime::Runtime;
 
 use aws_lambda_events::event::s3::S3Event;
-type Error = HandlerError;
+
+type Error = Box<dyn std::error::Error + Sync + Send + 'static>;
 
 mod palette;
 mod renderer;
 
-fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() -> Result<(), Error> {
     simple_logger::SimpleLogger::new()
         .with_level(LevelFilter::Info)
         .init()
         .unwrap();
 
-    lambda!(handler_wrapper);
-    Ok(())
-}
-
-fn handler_wrapper(e: S3Event, c: Context) -> Result<(), Error> {
-    let mut rt = Runtime::new().unwrap();
-    rt.block_on(handler(e, c))?;
+    lambda_runtime::run(handler_fn(handler)).await?;
     Ok(())
 }
 

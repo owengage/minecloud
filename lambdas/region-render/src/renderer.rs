@@ -1,6 +1,8 @@
 use std::io::Cursor;
 
-use fastanvil::{parse_region, Region, RegionBlockDrawer, RegionMap, RenderedPalette};
+use fastanvil::{
+    parse_region, CCoord, RCoord, RegionBlockDrawer, RegionBuffer, RegionMap, RenderedPalette,
+};
 use image::{png::PngEncoder, ColorType};
 
 use crate::palette::get_palette;
@@ -18,12 +20,12 @@ impl TileRenderer {
 
     pub fn render(&self, region: &[u8]) -> Vec<u8> {
         let cursor = Cursor::new(region);
-        let region = Region::new(cursor);
+        let region = RegionBuffer::new(cursor);
 
-        let map = RegionMap::new(0, 0, [0, 0, 0, 0]);
+        let map = RegionMap::new(RCoord(0), RCoord(0), [0, 0, 0, 0]);
         let mut drawer = RegionBlockDrawer::new(map, &self.pal);
 
-        parse_region(region, &mut drawer).unwrap_or_default(); // TODO handle some of the errors here
+        parse_region(&region, &mut drawer).unwrap_or_default(); // TODO handle some of the errors here
 
         let region = drawer.map;
         let region_len: usize = 32 * 16;
@@ -32,7 +34,7 @@ impl TileRenderer {
 
         for xc in 0..32 {
             for zc in 0..32 {
-                let chunk = region.chunk(xc, zc);
+                let chunk = region.chunk(CCoord(xc), CCoord(zc));
                 let xcp = xc as isize;
                 let zcp = zc as isize;
 
